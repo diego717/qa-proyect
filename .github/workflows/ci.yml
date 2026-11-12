@@ -1,0 +1,59 @@
+# CI of this monorepo: unit tests + the demo app ("client zero") end-to-end with the e2e template.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+
+  demo-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/demo-app/e2e
+    env:
+      CI: 'true'
+      # Fake, public demo credentials (see packages/demo-app/src/server.mjs). Not secrets.
+      E2E_BASE_URL: http://localhost:3000
+      E2E_RESET_TOKEN: ci-reset
+      E2E_USER_EMAIL: user@demo.test
+      E2E_USER_PASSWORD: user-pass
+      E2E_ADMIN_EMAIL: admin@demo.test
+      E2E_ADMIN_PASSWORD: admin-pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/demo-app/e2e/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-e2e-artifacts
+          path: |
+            packages/demo-app/e2e/playwright-report
+            packages/demo-app/e2e/test-results
+            packages/demo-app/e2e/results
+          if-no-files-found: ignore
+          retention-days: 7

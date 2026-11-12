@@ -78,8 +78,9 @@ jobs:
         if: env.SKIP_RUN != '1'
         run: npx playwright test
 
+      # Traces and reports contain staging session cookies: only uploaded from private repositories.
       - name: Upload report, traces and videos
-        if: always() && env.SKIP_RUN != '1'
+        if: always() && env.SKIP_RUN != '1' && github.event.repository.private
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -88,7 +89,16 @@ jobs:
             e2e/test-results
             e2e/results
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
+
+      - name: Upload results only (public repository)
+        if: always() && env.SKIP_RUN != '1' && !github.event.repository.private
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: e2e/results
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Optional: sends results.json to the QA service. Never fails this workflow.
       - name: Send results to QA service

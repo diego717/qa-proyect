@@ -21,9 +21,9 @@ export default defineConfig({
     ? { webServer: { ...qa.webServer, reuseExistingServer: !process.env.CI } }
     : {}),
   projects: [
-    // No traces or videos for setup: they would record test-user passwords and the reset token.
-    { name: 'seed', testMatch: /seed\.setup\.ts/, use: { trace: 'off', video: 'off' } },
-    { name: 'auth', testMatch: /auth\.setup\.ts/, dependencies: ['seed'], use: { trace: 'off', video: 'off' } },
+    // No traces, videos or screenshots for setup: they would record test-user passwords and the reset token.
+    { name: 'seed', testMatch: /seed\.setup\.ts/, use: { trace: 'off', video: 'off', screenshot: 'off' } },
+    { name: 'auth', testMatch: /auth\.setup\.ts/, dependencies: ['seed'], use: { trace: 'off', video: 'off', screenshot: 'off' } },
     {
       name: 'chromium',
       testDir: 'tests',

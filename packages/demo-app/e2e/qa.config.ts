@@ -11,7 +11,10 @@ export type QaConfig = {
   loginPath: string;
   /** POST endpoint that resets test data, or null if the app has none. */
   resetPath: string | null;
-  /** Optional: start the app locally before the tests. */
+  /**
+   * Optional: start the app locally before the tests. It inherits this process's environment.
+   * Never put secrets in webServer.env: the whole config is written to results/results.json.
+   */
   webServer?: { command: string; url: string; env?: Record<string, string> };
 };
 
@@ -23,6 +26,5 @@ export const qa: QaConfig = {
   webServer: {
     command: 'node ../src/main.mjs',
     url: 'http://localhost:3000/login',
-    env: { RESET_TOKEN: process.env.E2E_RESET_TOKEN ?? '' },
   },
 };

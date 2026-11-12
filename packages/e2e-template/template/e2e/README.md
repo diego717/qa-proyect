@@ -54,7 +54,7 @@ test.describe('as admin', () => {
 
 - In CI every failing test is retried up to 2 times. A test that passes on retry is reported as **flaky** and does not fail the PR.
 - A test that is flaky over time gets its key added to `quarantine.json` through a pull request. The blocking job skips it. A separate, non-blocking job runs only the quarantined tests (`E2E_QUARANTINE_MODE=only`) so it can be fixed and released.
-- A test's key is in the `qa-key` annotation of `results/results.json`, with the form `file.spec.ts > describe > title`.
+- A test's key is in the `qa-key` annotation of `results/results.json`, with the form `tests/file.spec.ts > describe > title`.
 
 ## CI (`.github/workflows/e2e.yml`)
 

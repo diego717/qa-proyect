@@ -29,6 +29,8 @@ jobs:
     continue-on-error: ${{ matrix.mode == 'only' }}
     strategy:
       fail-fast: false
+      # One at a time: both runs reset and log into the same staging, in parallel they would break each other.
+      max-parallel: 1
       matrix:
         mode: [exclude, only]
     env:
@@ -38,6 +40,12 @@ jobs:
       QA_INGEST_URL: ${{ secrets.QA_INGEST_URL }}
     steps:
       - uses: actions/checkout@v4
+
+      # github.event.repository is absent on scheduled runs, so ask the API. Unknown counts as public.
+      - name: Detect repository visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "REPO_PRIVATE=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private 2>/dev/null || echo false)" >> "$GITHUB_ENV"
 
       - name: Skip when nothing is quarantined
         if: matrix.mode == 'only'
@@ -80,7 +88,7 @@ jobs:
 
       # Traces and reports contain staging session cookies: only uploaded from private repositories.
       - name: Upload report, traces and videos
-        if: always() && env.SKIP_RUN != '1' && github.event.repository.private
+        if: always() && env.SKIP_RUN != '1' && env.REPO_PRIVATE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -92,7 +100,7 @@ jobs:
           retention-days: 7
 
       - name: Upload results only (public repository)
-        if: always() && env.SKIP_RUN != '1' && !github.event.repository.private
+        if: always() && env.SKIP_RUN != '1' && env.REPO_PRIVATE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}

@@ -11,7 +11,10 @@ export type QaConfig = {
   loginPath: string;
   /** POST endpoint that resets test data, or null if the app has none. */
   resetPath: string | null;
-  /** Optional: start the app locally before the tests. */
+  /**
+   * Optional: start the app locally before the tests. It inherits this process's environment.
+   * Never put secrets in webServer.env: the whole config is written to results/results.json.
+   */
   webServer?: { command: string; url: string; env?: Record<string, string> };
 };
 

@@ -1,4 +1,5 @@
 import './lib/env';
+import { safeBaseURL } from './lib/base-url';
 
 // The only file you need to edit per project.
 
@@ -19,7 +20,7 @@ export type QaConfig = {
 };
 
 export const qa: QaConfig = {
-  baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
+  baseURL: safeBaseURL(process.env.E2E_BASE_URL || 'http://localhost:3000'),
   roles: ['user'],
   loginPath: '/login',
   resetPath: '/__test__/reset',

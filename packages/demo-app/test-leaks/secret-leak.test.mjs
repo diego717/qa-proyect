@@ -4,14 +4,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 const e2eDir = fileURLToPath(new URL('../e2e/', import.meta.url));
 const RESET_TOKEN = 'reset-sentinel-9f3k';
-const SECRETS = [RESET_TOKEN, 'user-pass', 'admin-pass'];
+const URL_PASSWORD = 'basic-auth-sentinel-7q2w';
+const SECRETS = [RESET_TOKEN, 'user-pass', 'admin-pass', URL_PASSWORD];
 
 function runSuite(extraEnv) {
   const env = {
@@ -24,7 +25,10 @@ function runSuite(extraEnv) {
     E2E_ADMIN_PASSWORD: 'admin-pass',
     ...extraEnv,
   };
-  spawnSync('npx playwright test', { cwd: e2eDir, env, shell: true, encoding: 'utf8' });
+  // Fresh outputs every run, so a stale results.json can never make a test pass.
+  for (const dir of ['results', 'test-results', 'playwright-report']) rmSync(path.join(e2eDir, dir), { recursive: true, force: true });
+  const run = spawnSync('npx playwright test', { cwd: e2eDir, env, shell: true, encoding: 'utf8' });
+  return `${run.stdout}${run.stderr}`;
 }
 
 function textFiles(dir) {
@@ -66,7 +70,8 @@ function htmlReportTexts() {
   return texts;
 }
 
-const uploaded = () => [path.join(e2eDir, 'results', 'results.json'), ...textFiles(path.join(e2eDir, 'test-results'))];
+const uploaded = () =>
+  [path.join(e2eDir, 'results', 'results.json'), ...textFiles(path.join(e2eDir, 'test-results'))].filter((f) => existsSync(f));
 
 function allLeaks() {
   const found = leaksIn(uploaded());
@@ -77,6 +82,13 @@ function allLeaks() {
 test('a passing run leaks no password or reset token', () => {
   runSuite({});
   assert.ok(existsSync(path.join(e2eDir, 'results', 'results.json')), 'results.json was not produced');
+  assert.deepEqual(allLeaks(), []);
+});
+
+test('basic-auth credentials in E2E_BASE_URL do not leak when staging is unreachable', () => {
+  const output = runSuite({ E2E_BASE_URL: `http://qa:${URL_PASSWORD}@127.0.0.1:9` });
+  assert.match(output, /E2E_BASE_URL must not contain credentials/);
+  assert.ok(!output.includes(URL_PASSWORD), 'console output leaked the URL password');
   assert.deepEqual(allLeaks(), []);
 });
 

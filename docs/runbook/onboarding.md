@@ -14,7 +14,7 @@ Listo cuando: hay documentos firmados y la planilla existe.
 
 ## 1. Entorno
 
-- [ ] **URL de staging** (`E2E_BASE_URL`). Nunca producción.
+- [ ] **URL de staging** (`E2E_BASE_URL`). Nunca producción. **Sin credenciales en la URL** (`https://usuario:clave@...`): la plantilla la rechaza porque Playwright escribe `baseURL` en los reportes. Si staging tiene basic auth, pedí una allowlist de IPs para los runners de CI o una URL sin basic auth. El soporte de basic auth sin filtrarlo todavía no está implementado.
 - [ ] **Staging aislado de datos reales.** Preguntá explícitamente: "¿staging comparte base de datos, emails o pagos con producción?". Si comparte, se resuelve antes de seguir.
 - [ ] **Emails y pagos en modo prueba** (sandbox de Stripe, email catcher o similar), si los flujos críticos los tocan.
 

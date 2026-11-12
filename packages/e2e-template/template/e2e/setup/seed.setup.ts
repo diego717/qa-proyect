@@ -11,6 +11,8 @@ setup('reset test data', async () => {
 
   setup.skip(qa.resetPath === null, 'no reset endpoint');
   const url = new URL(qa.resetPath as string, qa.baseURL);
+  // Never print userinfo (https://user:pass@host) that a basic-auth staging URL may carry.
+  const shown = `${url.origin}${url.pathname}`;
   let status: number;
   try {
     const response = await fetch(url, {
@@ -21,9 +23,9 @@ setup('reset test data', async () => {
     status = response.status;
   } catch (error) {
     const cause = (error as { cause?: { code?: string } }).cause?.code ?? (error as Error).name;
-    throw new Error(`Test data reset failed: POST ${url} could not connect (${cause})`);
+    throw new Error(`Test data reset failed: POST ${shown} could not connect (${cause})`);
   }
   if (status < 200 || status >= 300) {
-    throw new Error(`Test data reset failed: POST ${url} returned ${status}`);
+    throw new Error(`Test data reset failed: POST ${shown} returned ${status}`);
   }
 });

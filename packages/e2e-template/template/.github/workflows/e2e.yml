@@ -1,0 +1,119 @@
+# End-to-end tests (Playwright). Runs on every PR, nightly and on demand.
+# Setup and secrets: see e2e/README.md.
+name: E2E
+
+on:
+  pull_request:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: e2e
+
+jobs:
+  e2e:
+    # "blocking" is the check to require in branch protection.
+    # "quarantined" runs only tests listed in e2e/quarantine.json and never fails the workflow.
+    name: E2E (${{ matrix.mode == 'only' && 'quarantined' || 'blocking' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.mode == 'only' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [exclude, only]
+    env:
+      CI: 'true'
+      E2E_QUARANTINE_MODE: ${{ matrix.mode }}
+      ARTIFACT_NAME: ${{ matrix.mode == 'only' && 'e2e-quarantine-artifacts' || 'e2e-artifacts' }}
+      QA_INGEST_URL: ${{ secrets.QA_INGEST_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip when nothing is quarantined
+        if: matrix.mode == 'only'
+        run: |
+          if node -e "process.exit(JSON.parse(require('fs').readFileSync('quarantine.json','utf8')).length ? 1 : 0)"; then
+            echo "SKIP_RUN=1" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: env.SKIP_RUN != '1'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      # Exposes every secret named E2E_* (one per role, MFA, reset token) without listing them here.
+      - name: Load E2E secrets
+        if: env.SKIP_RUN != '1'
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            for (const [key, value] of Object.entries(JSON.parse(process.env.ALL_SECRETS))) {
+              if (key.startsWith('E2E_')) fs.appendFileSync(process.env.GITHUB_ENV, key + '<<__E2E_EOF__\n' + value + '\n__E2E_EOF__\n');
+            }
+          "
+
+      - name: Install dependencies
+        if: env.SKIP_RUN != '1'
+        run: npm ci
+
+      - name: Install browser
+        if: env.SKIP_RUN != '1'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run tests
+        if: env.SKIP_RUN != '1'
+        run: npx playwright test
+
+      - name: Upload report, traces and videos
+        if: always() && env.SKIP_RUN != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+            e2e/results
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Optional: sends results.json to the QA service. Never fails this workflow.
+      - name: Send results to QA service
+        if: always() && matrix.mode == 'exclude' && env.QA_INGEST_URL != ''
+        continue-on-error: true
+        env:
+          QA_INGEST_TOKEN: ${{ secrets.QA_INGEST_TOKEN }}
+          QA_CLIENT_ID: ${{ vars.QA_CLIENT_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) RUN_KIND=pr ;;
+            schedule) RUN_KIND=nightly ;;
+            *) RUN_KIND=manual ;;
+          esac
+          if [ ! -f results/results.json ]; then echo "No results/results.json to send"; exit 1; fi
+          curl --fail --silent --show-error --max-time 30 -X POST "$QA_INGEST_URL" \
+            -H "Authorization: Bearer $QA_INGEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "X-QA-Client: $QA_CLIENT_ID" \
+            -H "X-QA-Run-Kind: $RUN_KIND" \
+            -H "X-QA-Commit: $COMMIT_SHA" \
+            -H "X-QA-Branch: $BRANCH" \
+            -H "X-QA-Run-Url: $RUN_URL" \
+            --data-binary @results/results.json

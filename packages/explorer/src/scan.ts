@@ -1,14 +1,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { chromium, request as playwrightRequest, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { isLoginUrl } from '../../e2e-template/template/e2e/lib/login-form.ts';
 import { authenticate } from './login.ts';
-import { classifyLink, normalizeUrl } from './frontier.ts';
+import { classifyLink, isForbiddenUrl, normalizeUrl } from './frontier.ts';
 import { measured, watchPage } from './checks/page-events.ts';
 import { checkLinks, type LinkCheckOptions, type LinkToCheck } from './checks/links.ts';
 import { checkA11y } from './checks/a11y.ts';
 import { measureTiming, timingFindings } from './checks/timing.ts';
-import { checkFormsStatic } from './checks/forms.ts';
+import { checkFormsInvalid, checkFormsStatic, type SubmitControl } from './checks/forms.ts';
 import type { Finding, PageRecord, ScanResult, SkippedLink } from './finding.ts';
 import type { Target } from './target.ts';
 
@@ -25,14 +25,18 @@ export type ScanOptions = {
 const NAV_TIMEOUT = 30_000;
 
 /** Safety state shared by the navigation guard, the crawler and the link checks. */
-type Guard = {
+export type Guard = {
   target: Target;
   loginUrl: string | null;
+  /** True only while authenticate() runs: the one window where the login form may be posted. */
+  loggingIn: boolean;
   startUrls: Set<string>;
   /** URLs that any link marked as never-click: never visited, whatever other links say. */
   forbiddenUrls: Set<string>;
-  /** Form submissions are only allowed while a staging form check runs (Task 7). */
+  /** Form submissions are only allowed while a staging form check runs, one submission at a time. */
   allowSubmit: boolean;
+  /** Status of the last navigation the guard fetched (used to read a form submission's outcome). */
+  lastNavigationStatus: number | null;
   /** Last navigation the guard refused, to explain why a page did not load. */
   lastBlocked: { url: string; reason: 'never-click' | 'out-of-scope' } | null;
   /** Last redirect the guard stopped: the crawler follows it itself, so the next hop is checked again. */
@@ -42,12 +46,18 @@ type Guard = {
 type Verdict = 'allow' | 'never-click' | 'out-of-scope';
 const MAX_REDIRECTS = 5;
 
-function navigationVerdict(guard: Guard, url: string, method: string): Verdict {
-  if (guard.loginUrl && isLoginUrl(url, guard.loginUrl)) return 'allow';
-  if (method !== 'GET') return guard.allowSubmit ? 'allow' : 'never-click';
+/**
+ * Whether a main-frame navigation may happen. Never-click rules come first, for every URL:
+ * the login exemption only covers the same-origin login page, and its POST only while logging in.
+ */
+export function navigationVerdict(guard: Guard, url: string, method: string): Verdict {
   const normalized = normalizeUrl(url, guard.target.baseUrl);
   if (!normalized) return 'out-of-scope';
-  if (guard.forbiddenUrls.has(normalized)) return 'never-click';
+  if (guard.forbiddenUrls.has(normalized) || isForbiddenUrl(normalized, '', guard.target.neverClick)) return 'never-click';
+  const sameOrigin = new URL(normalized).origin === new URL(guard.target.baseUrl).origin;
+  const isLogin = sameOrigin && !!guard.loginUrl && isLoginUrl(normalized, guard.loginUrl);
+  if (method !== 'GET') return (isLogin && guard.loggingIn) || guard.allowSubmit ? 'allow' : 'never-click';
+  if (isLogin) return 'allow';
   const kind = classifyLink({ href: normalized, text: '' }, guard.target);
   if (kind === 'never-click') return 'never-click';
   if (kind === 'crawl' || guard.startUrls.has(normalized)) return 'allow';
@@ -75,9 +85,10 @@ async function installNavigationGuard(context: BrowserContext, guard: Guard): Pr
       guard.lastBlocked = { url: request.url(), reason: verdict };
       return route.abort('blockedbyclient');
     }
-    if (request.method() !== 'GET' && guard.loginUrl && isLoginUrl(request.url(), guard.loginUrl)) return route.fallback();
+    if (guard.loggingIn && request.method() !== 'GET') return route.fallback(); // the login POST and its redirect
     try {
       const response = await route.fetch({ maxRedirects: 0 });
+      guard.lastNavigationStatus = response.status();
       const location = response.headers()['location'];
       if (response.status() >= 300 && response.status() < 400 && location) {
         const to = new URL(location, request.url()).href;
@@ -125,15 +136,16 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
   const guard: Guard = {
     target,
     loginUrl: target.loginPath ? new URL(target.loginPath, target.baseUrl).href : null,
+    loggingIn: true,
     startUrls: new Set(target.scope.start.map((s) => normalizeUrl(s, target.baseUrl)).filter((u): u is string => !!u)),
     forbiddenUrls: new Set(),
     allowSubmit: false,
+    lastNavigationStatus: null,
     lastBlocked: null,
     lastRedirect: null,
   };
 
   const browser = await chromium.launch({ headless: options.headless ?? true });
-  const anonymousRequest = await playwrightRequest.newContext();
   try {
     let context: BrowserContext;
     try {
@@ -144,16 +156,17 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
         await options.prepareContext?.(ctx);
       });
     } catch (error) {
+      guard.loggingIn = false;
       // Messages from authenticate never include credential values.
       result.status = 'blocked';
       result.blockedReason = (error as Error).message;
       return write(outDir, result);
     }
 
+    guard.loggingIn = false;
     const page = await context.newPage();
     await crawl(page, guard, result, outDir, {
       sessionRequest: context.request,
-      anonymousRequest,
       origin: new URL(target.baseUrl).origin,
       allowSameOrigin: (url) => navigationVerdict(guard, url, 'GET') === 'allow',
       onRequest: options.onRequest,
@@ -166,7 +179,6 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
     }
     return write(outDir, result);
   } finally {
-    await anonymousRequest.dispose();
     await browser.close();
   }
 }
@@ -180,6 +192,25 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
   const linkText = new Map<string, string>();
   const skipped = new Set<string>();
   const findingIds = new Set<string>();
+  const testedForms = new Set<string>();
+  const submitControl: SubmitControl = {
+    begin() {
+      guard.lastNavigationStatus = null;
+      guard.lastRedirect = null;
+      guard.allowSubmit = true;
+    },
+    status: () => guard.lastNavigationStatus,
+    end() {
+      guard.allowSubmit = false;
+      const redirect = guard.lastRedirect as Guard['lastRedirect'];
+      return { status: guard.lastNavigationStatus, redirectedTo: redirect && redirect.verdict === 'allow' ? redirect.to : null };
+    },
+  };
+  const saveShot = (findingId: string, png: Buffer) => {
+    const file = `evidence/${findingId}.png`;
+    writeFileSync(path.join(outDir, file), png);
+    return file;
+  };
 
   const skip = (link: SkippedLink) => {
     const key = `${link.url}|${link.reason}`;
@@ -306,6 +337,16 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
           finding.evidence.screenshot = `evidence/${finding.id}.png`;
           writeFileSync(path.join(outDir, finding.evidence.screenshot), shot);
         }
+        result.findings.push(finding);
+      }
+    }
+
+    // Last, because it leaves the page on the form's response: staging only, one submission per form.
+    if (status < 400) {
+      const formFindings = await checkFormsInvalid(page, target, submitControl, testedForms, saveShot).catch(() => []);
+      for (const finding of formFindings) {
+        if (isKnownNoise(finding, target) || findingIds.has(finding.id)) continue;
+        findingIds.add(finding.id);
         result.findings.push(finding);
       }
     }

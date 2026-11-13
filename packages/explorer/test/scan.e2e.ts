@@ -101,6 +101,37 @@ test('the only POST of a read-only scan is the login', async () => {
   expect(writes).toEqual([`POST ${DEMO}/login`]);
 });
 
+test('staging: reports the form that accepts an invalid email, not the one that rejects it', async () => {
+  const outDir = tempOut();
+  const result = await runScan(demoTarget({ mode: 'staging' }), { outDir, env: DEMO_ENV });
+  const accepted = result.findings.filter((f) => f.check === 'form-accepts-invalid');
+  expect(accepted).toHaveLength(1);
+  expect(accepted[0]).toMatchObject({ url: `${DEMO}/lab/form`, severity: 'serious', severitySource: 'server accepted invalid input' });
+  expect(accepted[0].steps.join(' ')).toContain('not-an-email');
+  expect(existsSync(path.join(outDir, accepted[0].evidence.screenshot ?? 'missing'))).toBe(true);
+});
+
+test('staging: never submits the login, sign-out or never-click forms', async () => {
+  const writes: string[] = [];
+  await runScan(demoTarget({ mode: 'staging' }), {
+    outDir: tempOut(),
+    env: DEMO_ENV,
+    onRequest: (method, url) => {
+      if (method !== 'GET' && method !== 'HEAD') writes.push(`${method} ${new URL(url).pathname}`);
+    },
+  });
+  expect(writes.filter((w) => w === 'POST /login')).toHaveLength(1); // only the scan's own login
+  expect(writes.filter((w) => w.includes('/logout'))).toEqual([]);
+  expect(writes.filter((w) => w.includes('/items'))).toEqual([]); // the "Add" form has no email/required field
+  expect(writes).toContain('POST /lab/form');
+  expect(await itemsHtml()).toContain('Seed item');
+});
+
+test('read-only: no form is ever submitted', async () => {
+  const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
+  expect(result.findings.filter((f) => f.check === 'form-accepts-invalid')).toEqual([]);
+});
+
 test('stops at max_pages and says so', async () => {
   const result = await runScan(demoTarget({}, { maxPages: 3 }), { outDir: tempOut(), env: DEMO_ENV });
   expect(result.pages).toHaveLength(3);

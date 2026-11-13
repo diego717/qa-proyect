@@ -95,6 +95,7 @@ Los perfiles reales tienen datos de prospectos: el repo tiene que ser privado y 
   - **Riesgo:** no sabemos si ese entorno permite instalar Chromium y llegar a la URL del prospecto. La primera tarea del plan lo verifica contra la demo-app.
   - **Plan B si falla:** la sesión corre en la máquina de Diego.
   - En cualquier caso, las skills no dependen de dónde se ejecuten.
+  - **Resultado de la prueba (Plan B, Task 1):** en local, `packages/explorer/scripts/browser-check.mjs` carga la demo-app (`OK 200 Sign in`). En la nube: **pendiente**. Hay que correr, en una sesión de Claude Code en la nube sobre este repo: `npm ci && npx playwright install --with-deps chromium`, levantar la demo (`node packages/demo-app/src/main.mjs &`) y `node packages/explorer/scripts/browser-check.mjs http://localhost:3000/login`, y después lo mismo con `https://example.com`. Anotar acá si instala Chromium, si llega a localhost y si llega a internet.
 
 ### 4.4 Revisión (Diego)
 

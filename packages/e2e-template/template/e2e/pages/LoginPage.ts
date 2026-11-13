@@ -2,6 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { qa } from '../qa.config';
 import type { Credentials } from '../lib/credentials';
 import { totp } from '../lib/totp';
+import { TOTP_LABEL } from './login-labels';
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -32,7 +33,7 @@ export class LoginPage {
     await this.page.getByLabel('Email').fill(credentials.email);
     await fillSecret(this.page.getByLabel('Password'), credentials.password);
     if (credentials.totpSecret) {
-      await fillSecret(this.page.getByLabel(/code/i), totp(credentials.totpSecret));
+      await fillSecret(this.page.getByLabel(TOTP_LABEL), totp(credentials.totpSecret));
     }
     await this.page.getByRole('button', { name: /sign in|log in/i }).click();
     await expect(this.page, `Login failed for role "${role}"`).not.toHaveURL(

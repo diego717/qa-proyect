@@ -50,6 +50,16 @@ test('never copies node_modules, .auth, results, reports or .env', async () => {
   expect(result.created.sort()).toEqual(['e2e/.env.example', 'e2e/playwright.config.ts']);
 });
 
+test('never copies .env.* variants, only .env.example', async () => {
+  const template = tempDir();
+  mkdirSync(join(template, 'e2e'));
+  for (const name of ['.env.local', '.env.production', '.env.staging.local', '.env.example']) {
+    writeFileSync(join(template, 'e2e', name), 'SECRET=1');
+  }
+  const result = await initTemplate({ targetDir: tempDir(), templateDir: template });
+  expect(result.created).toEqual(['e2e/.env.example']);
+});
+
 test('the real template never ships its installed node_modules', async () => {
   const result = await initTemplate({ targetDir: tempDir() });
   expect(result.created.filter((f: string) => f.includes('node_modules'))).toEqual([]);

@@ -26,7 +26,7 @@ Listo cuando: podés abrir staging en el navegador y no hay forma de que un test
 - [ ] **Credenciales cargadas como secrets del repo**, nunca por chat ni por email en texto plano: `E2E_<ROL>_EMAIL` y `E2E_<ROL>_PASSWORD`. El rol `power-user` se escribe `E2E_POWER_USER_*`.
 - [ ] **MFA**, si los usuarios lo tienen. Una de dos:
   - bypass de MFA en staging para los usuarios de prueba (preferido), o
-  - secreto TOTP del usuario de prueba (base32) en `E2E_<ROL>_TOTP_SECRET`. El campo del código tiene que tener un label que contenga "code".
+  - secreto TOTP del usuario de prueba (base32) en `E2E_<ROL>_TOTP_SECRET`. El campo del código se busca por su label con `TOTP_LABEL` (`e2e/pages/login-labels.ts`): acepta "Code", "Authentication code", "6-digit code" y similares, pero no "Promo code" ni "Recovery code". Si el label del cliente es otro, se ajusta ahí.
 
 Listo cuando: podés entrar a mano con cada usuario.
 

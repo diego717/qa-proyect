@@ -48,7 +48,9 @@ test.describe('as admin', () => {
 ## Adding a role
 
 1. Add it to `roles` in `qa.config.ts`, for example `'power-user'`.
-2. Set `E2E_POWER_USER_EMAIL` and `E2E_POWER_USER_PASSWORD` in `.env` and in the CI secrets. If the user has MFA, also set `E2E_POWER_USER_TOTP_SECRET` (base32).
+2. Set `E2E_POWER_USER_EMAIL` and `E2E_POWER_USER_PASSWORD` in `.env` and in the CI secrets. If the user has MFA, also set `E2E_POWER_USER_TOTP_SECRET` (base32). The one-time code field is found by its label (`TOTP_LABEL` in `pages/login-labels.ts`); change it if the app uses other wording.
+
+Every secret named `E2E_*` is loaded in CI automatically, except `E2E_QUARANTINE_MODE`, which the workflow sets.
 
 ## Flaky tests and quarantine
 
@@ -70,4 +72,9 @@ Runs on every pull request, nightly, and on demand. Repository secrets:
 
 Repository variable `QA_CLIENT_ID` identifies the project in the QA service.
 
-Each run uploads the `e2e-artifacts` artifact with the HTML report, traces, videos and `results.json`.
+Each run uploads the `e2e-artifacts` artifact (`e2e-quarantine-artifacts` for the quarantined job), kept for 7 days:
+
+- **Private repository:** HTML report, traces, videos and `results/`.
+- **Public repository:** only `results/`. Traces and reports contain staging session cookies, so they are never uploaded from a public repository. Run `npx playwright test` locally to get them.
+
+The `E2E (quarantined)` job stays green even when quarantined tests fail. It shows a warning on the run instead.

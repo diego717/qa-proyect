@@ -1,12 +1,26 @@
 #!/usr/bin/env node
 // QA explorer CLI. Usage: node src/cli.ts <command> <auditDir>
-//   scan <auditDir>   read-only crawl → <auditDir>/findings/measured.json (exit 2 if blocked)
+//   scan <auditDir>          read-only crawl → findings/measured.json (exit 2 if blocked)
+//   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadTarget } from './target.ts';
 import { runScan } from './scan.ts';
+import { writeReviewFile } from './review.ts';
+import type { Finding } from './finding.ts';
 
-const USAGE = 'Usage: node src/cli.ts scan <auditDir>';
+const USAGE = 'Usage: node src/cli.ts <scan|review-file> <auditDir>';
+
+/** All findings of an audit: measured.json (required) and observed.json (written by the exploration, optional). */
+export function loadFindings(auditDir: string): Finding[] {
+  const measuredFile = path.join(auditDir, 'findings', 'measured.json');
+  if (!existsSync(measuredFile)) throw new Error(`${measuredFile} not found: run the scan first`);
+  const measured = JSON.parse(readFileSync(measuredFile, 'utf8')).findings as Finding[];
+  const observedFile = path.join(auditDir, 'findings', 'observed.json');
+  const observed = existsSync(observedFile) ? (JSON.parse(readFileSync(observedFile, 'utf8')).findings as Finding[]) : [];
+  return [...measured, ...observed];
+}
 
 export async function main(argv: string[]): Promise<number> {
   const [command, auditDirArg] = argv;
@@ -25,6 +39,15 @@ export async function main(argv: string[]): Promise<number> {
         console.error(`Blocked: ${result.blockedReason}`);
         return 2;
       }
+      return 0;
+    }
+    if (command === 'review-file') {
+      const reviewFile = path.join(auditDir, 'review.yaml');
+      const existing = existsSync(reviewFile) ? readFileSync(reviewFile, 'utf8') : undefined;
+      const findings = loadFindings(auditDir);
+      writeFileSync(reviewFile, writeReviewFile(findings, existing));
+      const toReview = findings.filter((f) => f.source === 'model').length;
+      console.log(`${reviewFile} written: ${findings.length} finding(s), ${toReview} from the model to review.`);
       return 0;
     }
     console.error(`Unknown command "${command}". ${USAGE}`);

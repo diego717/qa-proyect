@@ -3,7 +3,7 @@
 //   scan <auditDir>          read-only crawl → findings/measured.json (exit 2 if blocked)
 //   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
 //   report <auditDir> [--allow-pending]   review.yaml + summary.md → report/informe.html
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadTarget } from './target.ts';
@@ -30,18 +30,23 @@ export function loadFindings(auditDir: string): Finding[] {
   return [...measured, ...observed];
 }
 
+const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex');
+
 /**
- * Reads evidence for the report. Paths may come from the model (observed.json), so only relative
- * paths to .png files inside <auditDir>/evidence are read; anything else returns null.
+ * Reads evidence for the report. Paths may come from the model (observed.json), and the model can write
+ * files, so only a relative path to a regular .png file (no symlink) whose real location is directly
+ * inside <auditDir>/evidence, with a PNG signature, is read. Anything else returns null.
  */
 export function evidenceReader(auditDir: string): (relativePath: string) => Buffer | null {
-  const evidenceDir = path.resolve(auditDir, 'evidence');
   return (relativePath) => {
     if (path.isAbsolute(relativePath) || !relativePath.toLowerCase().endsWith('.png')) return null;
-    const resolved = path.resolve(auditDir, relativePath);
-    if (path.dirname(resolved) !== evidenceDir) return null;
     try {
-      return readFileSync(resolved);
+      const evidenceDir = realpathSync(path.resolve(auditDir, 'evidence'));
+      const resolved = path.resolve(auditDir, relativePath);
+      if (!lstatSync(resolved).isFile()) return null; // lstat: a symlink is not a regular file
+      if (path.dirname(realpathSync(resolved)) !== evidenceDir) return null;
+      const content = readFileSync(resolved);
+      return content.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ? content : null;
     } catch {
       return null;
     }

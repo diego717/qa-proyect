@@ -33,12 +33,33 @@ test('evidence is only read from the audit evidence folder, and only PNG files',
   const { evidenceReader } = await import('../src/cli.ts');
   const dir = audit([], []);
   mkdirSync(path.join(dir, 'evidence'));
-  writeFileSync(path.join(dir, 'evidence', 'ok.png'), 'png-bytes');
+  writeFileSync(path.join(dir, 'evidence', 'ok.png'), Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('png-bytes')]));
   writeFileSync(path.join(dir, 'secret.txt'), 'top secret');
   const read = evidenceReader(dir);
-  expect(read('evidence/ok.png')?.toString()).toBe('png-bytes');
+  expect(read('evidence/ok.png')?.subarray(8).toString()).toBe('png-bytes');
   expect(read('evidence/../secret.txt')).toBeNull();
   expect(read('../secret.txt')).toBeNull();
   expect(read(path.join(dir, 'evidence', 'ok.png'))).toBeNull(); // absolute paths are refused
   expect(read('evidence/missing.png')).toBeNull();
+});
+
+test('evidence must be a real PNG file, never a symlink', async () => {
+  const { evidenceReader } = await import('../src/cli.ts');
+  const { symlinkSync } = await import('node:fs');
+  const dir = audit([], []);
+  mkdirSync(path.join(dir, 'evidence'));
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('rest')]);
+  writeFileSync(path.join(dir, 'evidence', 'real.png'), png);
+  writeFileSync(path.join(dir, 'evidence', 'fake.png'), 'not a png at all');
+  writeFileSync(path.join(dir, 'secret.txt'), 'top secret');
+  const read = evidenceReader(dir);
+  expect(read('evidence/real.png')?.equals(png)).toBe(true);
+  expect(read('evidence/fake.png')).toBeNull();
+  let linked = true;
+  try {
+    symlinkSync(path.join(dir, 'secret.txt'), path.join(dir, 'evidence', 'link.png'), 'file');
+  } catch {
+    linked = false; // Windows without symlink privileges: nothing to test there
+  }
+  if (linked) expect(read('evidence/link.png')).toBeNull();
 });

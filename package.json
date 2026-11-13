@@ -1,0 +1,8 @@
+{
+  "name": "qa-proyect",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test:unit": "npm test --workspaces --if-present"
+  }
+}

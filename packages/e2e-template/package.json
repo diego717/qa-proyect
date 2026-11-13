@@ -1,0 +1,17 @@
+{
+  "name": "e2e-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "qa-e2e-init": "bin/init.mjs"
+  },
+  "scripts": {
+    "test": "playwright test -c playwright.unit.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}

@@ -3,8 +3,9 @@
 // Runs the real demo e2e suite, so it needs packages/demo-app/e2e installed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
+import { spawnSync, execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync, statSync, existsSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +90,24 @@ test('basic-auth credentials in E2E_BASE_URL do not leak when staging is unreach
   const output = runSuite({ E2E_BASE_URL: `http://qa:${URL_PASSWORD}@127.0.0.1:9` });
   assert.match(output, /E2E_BASE_URL must not contain credentials/);
   assert.ok(!output.includes(URL_PASSWORD), 'console output leaked the URL password');
+  assert.deepEqual(allLeaks(), []);
+});
+
+// On CI Playwright captures git info by default: the PR diff (which can contain anything,
+// including this file's sentinels) and the commit author's name and email.
+test('a GitHub Actions PR run stores no git diff or commit author in the results', () => {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'qa-leak-'));
+  const rootCommit = execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: e2eDir, encoding: 'utf8' }).trim();
+  const eventPath = path.join(tmp, 'event.json');
+  writeFileSync(eventPath, JSON.stringify({ pull_request: { title: 'leak check', number: 1, base: { sha: rootCommit } } }));
+  try {
+    runSuite({ GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: eventPath, GITHUB_SHA: 'abc', GITHUB_REPOSITORY: 'acme/app' });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  const metadata = JSON.parse(readFileSync(path.join(e2eDir, 'results', 'results.json'), 'utf8')).config.metadata;
+  assert.equal(metadata.gitDiff, undefined, 'results.json contains the git diff');
+  assert.equal(metadata.gitCommit, undefined, 'results.json contains commit author info');
   assert.deepEqual(allLeaks(), []);
 });
 

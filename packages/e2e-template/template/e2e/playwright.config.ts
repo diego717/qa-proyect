@@ -6,6 +6,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   // Retries let a flaky test pass (reported as "flaky") instead of blocking a PR.
   retries: process.env.CI ? 2 : 0,
+  // On CI Playwright would store the PR source diff and the commit author (name, email) in
+  // results.json and the HTML report, which are uploaded and sent to the QA service. Never capture them.
+  captureGitInfo: { commit: false, diff: false },
   reporter: [
     ['list'],
     ['json', { outputFile: 'results/results.json' }],

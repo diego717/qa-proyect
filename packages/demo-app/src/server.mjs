@@ -26,7 +26,7 @@ ${error ? `<p role="alert">${escapeHtml(error)}</p>` : ''}
   );
 }
 
-function itemsPage(items, user, error) {
+function itemsPage(items, user, error, plantedBugs = false) {
   return layout(
     'Items',
     `<h1>Items</h1>
@@ -37,9 +37,62 @@ ${error ? `<p role="alert">${escapeHtml(error)}</p>` : ''}
   <label for="name">New item</label><input id="name" name="name">
   <button type="submit">Add</button>
 </form>
+${plantedBugs ? '<p><a href="/lab">Lab</a></p>' : ''}
 <form method="post" action="/logout"><button type="submit">Sign out</button></form>`,
   );
 }
+
+// Planted bugs for the explorer (only with createServer({ plantedBugs: true })).
+// Each page holds exactly one kind of problem, so a scan can prove it finds it.
+const LAB_LINKS = [
+  ['/lab/clean', 'Clean page'],
+  ['/lab/broken-link', 'Broken link'],
+  ['/lab/broken-image', 'Broken image'],
+  ['/lab/server-error', 'Server error'],
+  ['/lab/js-error', 'JavaScript error'],
+  ['/lab/unlabeled', 'Unlabeled fields'],
+  ['/lab/form', 'Form without validation'],
+  ['/lab/form-ok', 'Form with validation'],
+  ['/lab/slow', 'Slow page'],
+  ['/lab/delete-all', 'Delete all'],
+];
+
+const labIndex = () =>
+  layout('Lab', `<main><h1>Lab</h1><ul>${LAB_LINKS.map(([href, text]) => `<li><a href="${href}">${text}</a></li>`).join('')}</ul></main>`);
+
+const subscribeForm = (action, message = '') =>
+  layout(
+    'Subscribe',
+    `<main><h1>Subscribe</h1>${message}
+<form method="post" action="${action}">
+  <label for="sub-email">Email</label><input id="sub-email" name="email" type="email" required>
+  <button type="submit">Subscribe</button>
+</form></main>`,
+  );
+
+const LAB_PAGES = {
+  '/lab/clean': () => layout('Clean', '<main><h1>Clean page</h1><p>Nothing wrong here.</p></main>'),
+  '/lab/broken-link': () => layout('Broken link', '<main><h1>Broken link</h1><p><a href="/lab/missing">Missing page</a></p></main>'),
+  '/lab/broken-image': () => layout('Broken image', '<main><h1>Broken image</h1><img src="/lab/missing.png" alt="Chart"></main>'),
+  '/lab/js-error': () =>
+    layout(
+      'JavaScript error',
+      `<main><h1>JavaScript error</h1></main><script>console.error('planted console error'); throw new Error('planted js error');</script>`,
+    ),
+  '/lab/unlabeled': () =>
+    layout(
+      'Unlabeled fields',
+      `<main><h1>Contact</h1><form method="post" action="/lab/unlabeled">
+  <input name="phone">
+  <label for="mail">Email</label><input id="mail" name="email" type="text">
+  <button type="submit">Send</button>
+</form></main>`,
+    ),
+  '/lab/form': () => subscribeForm('/lab/form'),
+  '/lab/form-ok': () => subscribeForm('/lab/form-ok'),
+};
+
+const EMAIL = /^[^s@]+@[^s@]+.[^s@]+$/;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -64,7 +117,7 @@ function parseCookies(header = '') {
   );
 }
 
-export function createServer({ resetToken, users = DEFAULT_USERS } = {}) {
+export function createServer({ resetToken, users = DEFAULT_USERS, plantedBugs = false } = {}) {
   let items = [...SEED_ITEMS];
   const sessions = new Map(); // id -> user
 
@@ -111,11 +164,11 @@ export function createServer({ resetToken, users = DEFAULT_USERS } = {}) {
         return redirect(res, '/login', { 'set-cookie': 'session=; Path=/; Max-Age=0' });
       }
 
-      if (route === 'GET /items') return send(res, 200, itemsPage(items, user));
+      if (route === 'GET /items') return send(res, 200, itemsPage(items, user, undefined, plantedBugs));
 
       if (route === 'POST /items') {
         const name = ((await readBody(req)).get('name') ?? '').trim();
-        if (!name) return send(res, 400, itemsPage(items, user, 'Name is required'));
+        if (!name) return send(res, 400, itemsPage(items, user, 'Name is required', plantedBugs));
         items.push(name);
         return redirect(res, '/items');
       }
@@ -123,6 +176,29 @@ export function createServer({ resetToken, users = DEFAULT_USERS } = {}) {
       if (route === 'GET /admin') {
         if (user.role !== 'admin') return send(res, 403, layout('Forbidden', '<h1>Forbidden</h1>'));
         return send(res, 200, layout('Admin', `<h1>Admin</h1><p>${users.length} users</p>`));
+      }
+
+      if (plantedBugs && url.pathname.startsWith('/lab')) {
+        if (route === 'GET /lab') return send(res, 200, labIndex());
+        if (route === 'GET /lab/server-error') return send(res, 500, layout('Error', '<h1>Internal error</h1>'));
+        if (route === 'GET /lab/slow') {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          return send(res, 200, layout('Slow', '<main><h1>Slow page</h1></main>'));
+        }
+        if (route === 'GET /lab/delete-all') {
+          items = [];
+          return send(res, 200, layout('Deleted', '<main><h1>Deleted</h1></main>'));
+        }
+        if (route === 'POST /lab/form') {
+          await readBody(req);
+          return send(res, 200, subscribeForm('/lab/form', '<p>Saved</p>'));
+        }
+        if (route === 'POST /lab/form-ok') {
+          const email = (await readBody(req)).get('email') ?? '';
+          if (!EMAIL.test(email)) return send(res, 400, subscribeForm('/lab/form-ok', '<p role="alert">Invalid email</p>'));
+          return send(res, 200, subscribeForm('/lab/form-ok', '<p>Saved</p>'));
+        }
+        if (req.method === 'GET' && LAB_PAGES[url.pathname]) return send(res, 200, LAB_PAGES[url.pathname]());
       }
 
       return send(res, 404, layout('Not found', '<h1>Not found</h1>'));

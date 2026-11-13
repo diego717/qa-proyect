@@ -32,6 +32,30 @@ test('finds the planted server error, broken image, js error and console error',
   expect(written.findings).toHaveLength(result.findings.length);
 });
 
+test('finds the planted broken link, the unlabeled field, the email typed as text and the slow page', async () => {
+  const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
+
+  const broken = result.findings.filter((f) => f.check === 'broken-link');
+  expect(broken).toHaveLength(1);
+  expect(broken[0]).toMatchObject({ severity: 'moderate', url: `${DEMO}/lab/broken-link` });
+  expect(broken[0].evidence.detail).toContain('/lab/missing');
+  expect(broken[0].steps.join(' ')).toContain('/lab/broken-link');
+
+  const a11y = at(result.findings, 'a11y', '/lab/unlabeled');
+  expect(a11y.map((f) => f.evidence.detail ?? '').some((d) => d.includes('label'))).toBe(true);
+  expect(a11y.every((f) => f.severitySource === 'axe impact')).toBe(true);
+
+  expect(at(result.findings, 'form-static', '/lab/unlabeled')).toHaveLength(1);
+  expect(at(result.findings, 'slow-page', '/lab/slow')).toHaveLength(1);
+});
+
+test('the pages without planted bugs have no findings at all', async () => {
+  const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
+  for (const pathname of ['/items', '/lab', '/lab/clean', '/lab/form', '/lab/form-ok']) {
+    expect(result.findings.filter((f) => new URL(f.url).pathname === pathname), pathname).toEqual([]);
+  }
+});
+
 test('reports nothing on the clean page', async () => {
   const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
   expect(result.pages.find((p) => p.url === `${DEMO}/lab/clean`)?.status).toBe('scanned');

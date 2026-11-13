@@ -5,6 +5,10 @@ import { isLoginUrl } from '../../e2e-template/template/e2e/lib/login-form.ts';
 import { authenticate } from './login.ts';
 import { classifyLink, normalizeUrl } from './frontier.ts';
 import { measured, watchPage } from './checks/page-events.ts';
+import { checkLinks, type LinkToCheck } from './checks/links.ts';
+import { checkA11y } from './checks/a11y.ts';
+import { measureTiming, timingFindings } from './checks/timing.ts';
+import { checkFormsStatic } from './checks/forms.ts';
 import type { Finding, PageRecord, ScanResult, SkippedLink } from './finding.ts';
 import type { Target } from './target.ts';
 
@@ -67,7 +71,7 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
     }
 
     const page = await context.newPage();
-    await crawl(page, target, result, outDir);
+    await crawl(page, target, result, outDir, options);
 
     if (!result.pages.some((p) => p.status === 'scanned')) {
       result.status = 'blocked';
@@ -80,7 +84,9 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
   }
 }
 
-async function crawl(page: Page, target: Target, result: ScanResult, outDir: string): Promise<void> {
+async function crawl(page: Page, target: Target, result: ScanResult, outDir: string, options: ScanOptions): Promise<void> {
+  const origin = new URL(target.baseUrl).origin;
+  const checkedLinks = new Set<string>();
   const loginUrl = target.loginPath ? new URL(target.loginPath, target.baseUrl).href : null;
   const queue: string[] = [];
   const seen = new Set<string>();
@@ -114,6 +120,12 @@ async function crawl(page: Page, target: Target, result: ScanResult, outDir: str
     const response = await page.goto(url, { waitUntil: 'load', timeout: NAV_TIMEOUT }).catch(() => null);
     await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
     const pageFindings = watcher.stop();
+    const contentChecks = async (status: number) => {
+      if (status >= 400) return; // error pages are reported by http-error / broken-link
+      pageFindings.push(...timingFindings(page.url(), await measureTiming(page).catch(() => ({ ttfbMs: 0, lcpMs: null }))));
+      pageFindings.push(...(await checkA11y(page).catch(() => [])));
+      pageFindings.push(...(await checkFormsStatic(page).catch(() => [])));
+    };
 
     if (!response) {
       result.pages.push({ url, status: 'blocked', reason: 'did not load' });
@@ -139,12 +151,19 @@ async function crawl(page: Page, target: Target, result: ScanResult, outDir: str
       );
     }
 
+    await contentChecks(status);
+
     const links = await page
       .$$eval('a[href]', (anchors) => anchors.map((a) => ({ href: (a as HTMLAnchorElement).href, text: (a.textContent ?? '').trim() })))
       .catch(() => [] as { href: string; text: string }[]);
+    const toCheck: LinkToCheck[] = [];
     for (const link of links) {
       const normalized = normalizeUrl(link.href, finalUrl);
       const kind = classifyLink({ href: normalized ?? link.href, text: link.text }, target);
+      if ((kind === 'crawl' || kind === 'external') && normalized && !checkedLinks.has(normalized)) {
+        checkedLinks.add(normalized);
+        toCheck.push({ url: normalized, text: link.text, foundOn: url, thirdParty: new URL(normalized).origin !== origin });
+      }
       if (kind === 'crawl' && normalized) {
         if (!seen.has(normalized)) {
           seen.add(normalized);
@@ -155,6 +174,8 @@ async function crawl(page: Page, target: Target, result: ScanResult, outDir: str
         skip({ url: normalized ?? link.href, text: link.text, reason: kind });
       }
     }
+
+    pageFindings.push(...(await checkLinks(page.context().request, toCheck, options.onRequest)));
 
     const fresh = pageFindings.filter((f) => !isKnownNoise(f, target) && !findingIds.has(f.id));
     if (fresh.length) {

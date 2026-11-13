@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { runScan } from '../src/scan.ts';
+import { runScan, saveSession } from '../src/scan.ts';
 import type { Finding } from '../src/finding.ts';
 import { DEMO, DEMO_ENV, ADMIN_PASSWORD, demoTarget, tempOut, resetDemo, itemsHtml } from './helpers.ts';
 
@@ -130,6 +130,16 @@ test('staging: never submits the login, sign-out or never-click forms', async ()
 test('read-only: no form is ever submitted', async () => {
   const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
   expect(result.findings.filter((f) => f.check === 'form-accepts-invalid')).toEqual([]);
+});
+
+test('login saves the session for the exploration, without the password in it', async () => {
+  const outDir = tempOut();
+  const file = await saveSession(demoTarget(), { outDir, env: DEMO_ENV });
+  expect(file).toBe(path.join(outDir, '.auth', 'session.json'));
+  const state = readFileSync(file, 'utf8');
+  expect(JSON.parse(state).cookies.some((c: { name: string }) => c.name === 'session')).toBe(true);
+  expect(state).not.toContain(ADMIN_PASSWORD);
+  await expect(saveSession(demoTarget(), { outDir, env: { ...DEMO_ENV, AUDIT_EXAMPLE_PASSWORD: 'nope' } })).rejects.toThrow(/Login failed/);
 });
 
 test('stops at max_pages and says so', async () => {

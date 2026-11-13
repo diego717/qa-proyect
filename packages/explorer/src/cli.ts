@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 // QA explorer CLI. Usage: node src/cli.ts <command> <auditDir>
 //   scan <auditDir>          read-only crawl → findings/measured.json (exit 2 if blocked)
+//   login <auditDir>         logs in once → .auth/session.json for the exploration (git-ignored)
+//   validate-observed <auditDir>   checks findings/observed.json written by the exploration
 //   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
 //   report <auditDir> [--allow-pending]   review.yaml + summary.md → report/informe.html
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadTarget } from './target.ts';
-import { runScan } from './scan.ts';
+import { runScan, saveSession } from './scan.ts';
+import { loadChecklists, validateObserved } from './observed.ts';
 import { applyReview, reportable, writeReviewFile } from './review.ts';
 import { renderReport } from './report/render.ts';
+import { evidenceReader } from './evidence.ts';
 import type { Finding, ScanResult } from './finding.ts';
 
-const USAGE = 'Usage: node src/cli.ts <scan|review-file|report> <auditDir> [--allow-pending]';
+const USAGE = 'Usage: node src/cli.ts <scan|login|validate-observed|review-file|report> <auditDir> [--allow-pending]';
+const CHECKLISTS_DIR = fileURLToPath(new URL('../checklists/', import.meta.url));
 
 /** All findings of an audit: measured.json (required) and observed.json (written by the exploration, optional). */
 export function loadFindings(auditDir: string): Finding[] {
@@ -30,28 +35,7 @@ export function loadFindings(auditDir: string): Finding[] {
   return [...measured, ...observed];
 }
 
-const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex');
-
-/**
- * Reads evidence for the report. Paths may come from the model (observed.json), and the model can write
- * files, so only a relative path to a regular .png file (no symlink) whose real location is directly
- * inside <auditDir>/evidence, with a PNG signature, is read. Anything else returns null.
- */
-export function evidenceReader(auditDir: string): (relativePath: string) => Buffer | null {
-  return (relativePath) => {
-    if (path.isAbsolute(relativePath) || !relativePath.toLowerCase().endsWith('.png')) return null;
-    try {
-      const evidenceDir = realpathSync(path.resolve(auditDir, 'evidence'));
-      const resolved = path.resolve(auditDir, relativePath);
-      if (!lstatSync(resolved).isFile()) return null; // lstat: a symlink is not a regular file
-      if (path.dirname(realpathSync(resolved)) !== evidenceDir) return null;
-      const content = readFileSync(resolved);
-      return content.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ? content : null;
-    } catch {
-      return null;
-    }
-  };
-}
+export { evidenceReader };
 
 function report(auditDir: string, allowPending: boolean): number {
   const target = loadTarget(path.join(auditDir, 'target.yaml'));
@@ -87,7 +71,8 @@ export async function main(argv: string[]): Promise<number> {
     console.error(USAGE);
     return 1;
   }
-  const auditDir = path.resolve(auditDirArg);
+  // npm -w runs scripts inside the package: resolve paths from where npm was invoked.
+  const auditDir = path.resolve(process.env.INIT_CWD ?? process.cwd(), auditDirArg);
   try {
     if (command === 'scan') {
       const target = loadTarget(path.join(auditDir, 'target.yaml'));
@@ -110,6 +95,23 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (command === 'report') return report(auditDir, allowPending);
+    if (command === 'login') {
+      const file = await saveSession(loadTarget(path.join(auditDir, 'target.yaml')), { outDir: auditDir });
+      console.log(`Session saved to ${file} (git-ignored: it holds session cookies). The exploration loads it instead of typing the password.`);
+      return 0;
+    }
+    if (command === 'validate-observed') {
+      const observedFile = path.join(auditDir, 'findings', 'observed.json');
+      if (!existsSync(observedFile)) throw new Error(`${observedFile} not found`);
+      const checklistIds = new Set(loadChecklists(CHECKLISTS_DIR).map((item) => item.id));
+      const { findings, errors } = validateObserved(JSON.parse(readFileSync(observedFile, 'utf8')), { auditDir, checklistIds });
+      if (errors.length) {
+        console.error(`${errors.length} problem(s) in observed.json:\n${errors.map((e) => `  - ${e}`).join('\n')}`);
+        return 1;
+      }
+      console.log(`observed.json is valid: ${findings.length} finding(s) ready for review.`);
+      return 0;
+    }
     console.error(`Unknown command "${command}". ${USAGE}`);
     return 1;
   } catch (error) {

@@ -364,3 +364,20 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
     }
   }
 }
+
+/**
+ * Logs in once and saves the browser session to <outDir>/.auth/session.json, so the exploration can start
+ * authenticated without ever typing the password. The file holds session cookies: it is git-ignored (.auth/).
+ */
+export async function saveSession(target: Target, options: { outDir: string; env?: NodeJS.ProcessEnv; headless?: boolean }): Promise<string> {
+  const browser = await chromium.launch({ headless: options.headless ?? true });
+  try {
+    const context = await authenticate(browser, target, options.env ?? process.env);
+    const file = path.join(options.outDir, '.auth', 'session.json');
+    mkdirSync(path.dirname(file), { recursive: true });
+    await context.storageState({ path: file });
+    return file;
+  } finally {
+    await browser.close();
+  }
+}

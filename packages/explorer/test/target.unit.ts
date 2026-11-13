@@ -113,3 +113,9 @@ ${AUTH}`;
   expect(loadTarget(profile(yaml('AUDIT_ACME_EMAIL'), 'acme')).login?.emailEnv).toBe('AUDIT_ACME_EMAIL');
   expect(() => loadTarget(profile(yaml('AUDIT_ACME_UY_EMAIL'), 'acme'))).toThrow(/must be AUDIT_ACME_EMAIL/);
 });
+
+test('invalid regex patterns fail at load time and name the field', () => {
+  const yaml = (extra: string) => `name: Acme\nbase_url: https://acme.test\n${extra}\n${AUTH}`;
+  expect(() => loadTarget(profile(yaml('scope:\n  include: ["/lab("]')))).toThrow(/scope.include\[0\]/);
+  expect(() => loadTarget(profile(yaml('never_click: ["[unclosed"]')))).toThrow(/never_click\[0\]/);
+});

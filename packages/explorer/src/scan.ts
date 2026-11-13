@@ -56,6 +56,8 @@ export function navigationVerdict(guard: Guard, url: string, method: string): Ve
   if (guard.forbiddenUrls.has(normalized) || isForbiddenUrl(normalized, '', guard.target.neverClick)) return 'never-click';
   const sameOrigin = new URL(normalized).origin === new URL(guard.target.baseUrl).origin;
   const isLogin = sameOrigin && !!guard.loginUrl && isLoginUrl(normalized, guard.loginUrl);
+  // While logging in, the login form may post to another path (GET /session/new → POST /session).
+  if (method !== 'GET' && guard.loggingIn) return sameOrigin ? 'allow' : 'out-of-scope';
   if (isLogin) return method === 'GET' || guard.loggingIn ? 'allow' : 'never-click';
   const kind = classifyLink({ href: normalized, text: '' }, guard.target);
   if (method !== 'GET') {
@@ -181,6 +183,7 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
       sessionRequest: context.request,
       origin: new URL(target.baseUrl).origin,
       allowSameOrigin: (url) => navigationVerdict(guard, url, 'GET') === 'allow',
+      neverClick: target.neverClick,
       onRequest: options.onRequest,
     });
 
@@ -195,6 +198,12 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
   }
 }
 
+/** Records another page where an already reported problem was seen. */
+function seenAgain(finding: Finding, pageUrl: string): void {
+  if (pageUrl === finding.url || finding.alsoOn?.includes(pageUrl)) return;
+  finding.alsoOn = [...(finding.alsoOn ?? []), pageUrl];
+}
+
 async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: string, linkOptions: LinkCheckOptions): Promise<void> {
   const { target, loginUrl } = guard;
   const origin = new URL(target.baseUrl).origin;
@@ -203,7 +212,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
   const seen = new Set<string>();
   const linkText = new Map<string, string>();
   const skipped = new Set<string>();
-  const findingIds = new Set<string>();
+  const byId = new Map<string, Finding>();
   const testedForms = new Set<string>();
   const submitControl: SubmitControl = {
     begin(actionUrl: string) {
@@ -341,11 +350,13 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
 
     pageFindings.push(...(await checkLinks(toCheck, linkOptions)));
 
-    const fresh = pageFindings.filter((f) => !isKnownNoise(f, target) && !findingIds.has(f.id));
+    const kept = pageFindings.filter((f) => !isKnownNoise(f, target));
+    const fresh = kept.filter((f) => !byId.has(f.id));
+    for (const repeated of kept.filter((f) => byId.has(f.id))) seenAgain(byId.get(repeated.id) as Finding, repeated.url);
     if (fresh.length) {
       const shot = await page.screenshot({ fullPage: true }).catch(() => null);
       for (const finding of fresh) {
-        findingIds.add(finding.id);
+        byId.set(finding.id, finding);
         if (shot) {
           finding.evidence.screenshot = `evidence/${finding.id}.png`;
           safeWriteFile(outDir, finding.evidence.screenshot, shot);
@@ -358,8 +369,8 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
     if (status < 400) {
       const formFindings = await checkFormsInvalid(page, target, submitControl, testedForms, saveShot).catch(() => []);
       for (const finding of formFindings) {
-        if (isKnownNoise(finding, target) || findingIds.has(finding.id)) continue;
-        findingIds.add(finding.id);
+        if (isKnownNoise(finding, target) || byId.has(finding.id)) continue;
+        byId.set(finding.id, finding);
         result.findings.push(finding);
       }
     }

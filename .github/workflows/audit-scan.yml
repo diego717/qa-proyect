@@ -26,6 +26,15 @@ jobs:
       AUDIT_ID: ${{ inputs.audit_id }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The tool code and this workflow must come from main: the audit branch is written by the
+      # exploration (model) session and must never run with the repository secrets.
+      - name: Only from main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Run this workflow from main (Use workflow from: main). The audit branch only holds data."
+            exit 1
+          fi
+
       - name: Check the audit id
         run: |
           if ! printf '%s' "$AUDIT_ID" | grep -Eq '^[a-z0-9][a-z0-9-]{0,40}$'; then
@@ -48,9 +57,17 @@ jobs:
             exit 1
           fi
 
+      # Tool code from main, without push credentials.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Only the audit's data folder from its branch, in audit-branch/ (the results are pushed from there).
       - uses: actions/checkout@v7
         with:
           ref: audit/${{ inputs.audit_id }}
+          path: audit-branch
+          sparse-checkout: audits/${{ inputs.audit_id }}
 
       - uses: actions/setup-node@v7
         with:
@@ -75,11 +92,12 @@ jobs:
       - name: Scan
         id: scan
         continue-on-error: true
-        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON packages/explorer/src/cli.ts scan "audits/$AUDIT_ID"
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON packages/explorer/src/cli.ts scan "audit-branch/audits/$AUDIT_ID"
 
       # Committed even when blocked: the blocked reason is in measured.json.
       - name: Commit the results to the audit branch
         if: always()
+        working-directory: audit-branch
         run: |
           git config user.name "qa-explorer"
           git config user.email "qa-explorer@users.noreply.github.com"
@@ -97,13 +115,13 @@ jobs:
         with:
           name: audit-scan-${{ inputs.audit_id }}
           path: |
-            audits/${{ inputs.audit_id }}/findings
-            audits/${{ inputs.audit_id }}/evidence
+            audit-branch/audits/${{ inputs.audit_id }}/findings
+            audit-branch/audits/${{ inputs.audit_id }}/evidence
           if-no-files-found: ignore
           retention-days: 7
 
       - name: Fail if the scan was blocked
         if: steps.scan.outcome == 'failure'
         run: |
-          echo "::error::The scan was blocked or failed. The reason is in audits/$AUDIT_ID/findings/measured.json (blockedReason)."
+          echo "::error::The scan was blocked or failed. The reason is in audits/$AUDIT_ID/findings/measured.json (blockedReason) on branch audit/$AUDIT_ID."
           exit 1

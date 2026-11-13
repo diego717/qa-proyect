@@ -7,10 +7,19 @@ export function measured(
   check: string,
   pageUrl: string,
   key: string,
-  fields: { title: string; severity: Severity; severitySource: string; detail?: string; thirdParty?: boolean; steps?: string[] },
+  fields: {
+    title: string;
+    severity: Severity;
+    severitySource: string;
+    detail?: string;
+    thirdParty?: boolean;
+    steps?: string[];
+    /** URL the id is computed from instead of the page: a resource or the site root, so the same problem on several pages is one finding. */
+    idUrl?: string;
+  },
 ): Finding {
   return {
-    id: findingId(check, pageUrl, key),
+    id: findingId(check, fields.idUrl ?? pageUrl, key),
     source: 'measured',
     check,
     title: fields.title,
@@ -35,7 +44,16 @@ const RESOURCE_NOISE = /^Failed to load resource/;
 export function watchPage(page: Page, target: Target): { stop(): Finding[] } {
   const findings: Finding[] = [];
   const origin = new URL(target.baseUrl).origin;
-  const isThirdParty = (url: string) => new URL(url).origin !== origin;
+  const siteRoot = `${origin}/`;
+  const isThirdParty = (url: string) => {
+    try {
+      return new URL(url).origin !== origin;
+    } catch {
+      return false;
+    }
+  };
+  // Where a script error comes from: the first http(s) URL of its stack (the throwing script).
+  const scriptOrigin = (stack: string | undefined) => stack?.match(/https?:\/\/[^\s)'"]+/)?.[0];
   const isMainDocument = (request: Request) => request.isNavigationRequest() && request.frame() === page.mainFrame();
 
   const onResponse = (response: Response) => {
@@ -46,7 +64,9 @@ export function watchPage(page: Page, target: Target): { stop(): Finding[] } {
     const thirdParty = isThirdParty(url);
     const detail = `${request.method()} ${url} → HTTP ${status}`;
     if (request.resourceType() === 'image') {
-      findings.push(measured('broken-image', page.url(), url, { title: 'Imagen rota', severity: 'moderate', severitySource: 'HTTP status', detail, thirdParty }));
+      findings.push(
+        measured('broken-image', page.url(), url, { title: 'Imagen rota', severity: 'moderate', severitySource: 'HTTP status', detail, thirdParty, idUrl: url }),
+      );
       return;
     }
     const serverError = status >= 500;
@@ -57,6 +77,7 @@ export function watchPage(page: Page, target: Target): { stop(): Finding[] } {
         severitySource: serverError ? 'HTTP 5xx' : 'HTTP 4xx',
         detail,
         thirdParty,
+        idUrl: url,
       }),
     );
   };
@@ -71,29 +92,38 @@ export function watchPage(page: Page, target: Target): { stop(): Finding[] } {
         severitySource: 'HTTP status',
         detail: `GET ${url} → ${request.failure()?.errorText ?? 'failed'}`,
         thirdParty: isThirdParty(url),
+        idUrl: url,
       }),
     );
   };
 
   const onPageError = (error: Error) => {
+    const source = scriptOrigin(error.stack);
+    const thirdParty = !!source && isThirdParty(source);
     findings.push(
       measured('js-error', page.url(), error.message, {
         title: 'Error de JavaScript sin capturar',
-        severity: 'serious',
+        severity: thirdParty ? 'moderate' : 'serious',
         severitySource: 'uncaught exception',
-        detail: error.message,
+        detail: source ? `${error.message} (en ${source})` : error.message,
+        thirdParty,
+        idUrl: siteRoot,
       }),
     );
   };
 
   const onConsole = (message: ConsoleMessage) => {
     if (message.type() !== 'error' || RESOURCE_NOISE.test(message.text())) return;
+    const source = message.location().url;
+    const thirdParty = !!source && isThirdParty(source);
     findings.push(
       measured('console-error', page.url(), message.text(), {
         title: 'Error en la consola del navegador',
         severity: 'minor',
         severitySource: 'console.error',
-        detail: message.text(),
+        detail: thirdParty ? `${message.text()} (en ${source})` : message.text(),
+        thirdParty,
+        idUrl: siteRoot,
       }),
     );
   };

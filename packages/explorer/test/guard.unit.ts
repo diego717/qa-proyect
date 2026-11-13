@@ -45,3 +45,10 @@ test('a submission out of scope is refused even if it is the one being checked',
   const g = guard({ target: demoTarget({}, { exclude: ['^/lab/form$'] }), allowedSubmit: { url: LAB_FORM, used: false } });
   expect(navigationVerdict(g, LAB_FORM, 'POST')).toBe('out-of-scope');
 });
+
+test('while logging in, a login form that posts to another same-origin path is allowed', () => {
+  expect(navigationVerdict(guard({ loggingIn: true }), 'http://localhost:3100/session', 'POST')).toBe('allow');
+  expect(navigationVerdict(guard({ loggingIn: true }), 'http://localhost:3100/lab/delete-all', 'POST')).toBe('never-click');
+  expect(navigationVerdict(guard({ loggingIn: true }), 'http://evil.test/session', 'POST')).not.toBe('allow');
+  expect(navigationVerdict(guard(), 'http://localhost:3100/session', 'POST')).toBe('never-click');
+});

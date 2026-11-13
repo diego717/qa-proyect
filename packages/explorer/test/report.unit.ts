@@ -162,3 +162,18 @@ test('evidence images are embedded, not linked', () => {
   expect(html).toContain(`data:image/png;base64,${png.toString('base64')}`);
   expect(html).not.toContain('src="evidence/m1.png"');
 });
+
+test('a blocked scan is refused unless allowed, and then its reason leads the report', () => {
+  const blocked = scan({ status: 'blocked', blockedReason: 'Login failed for audit target "example"', pages: [] });
+  expect(() => renderReport(input({ scan: blocked }))).toThrow(/scan was blocked/);
+  const html = renderReport(input({ scan: blocked, allowBlocked: true }));
+  expect(html).toContain('El escaneo automático no se pudo completar');
+  expect(html).toContain('Login failed for audit target');
+  expect(html.indexOf('El escaneo automático no se pudo completar')).toBeLessThan(html.indexOf('Resumen'));
+});
+
+test('a finding seen on several pages lists them', () => {
+  const html = renderReport(input({ findings: [finding('m1', { alsoOn: ['http://localhost:3100/b', 'http://localhost:3100/c'] })] }));
+  expect(html).toContain('También aparece en 2 páginas más');
+  expect(html).toContain('http://localhost:3100/c');
+});

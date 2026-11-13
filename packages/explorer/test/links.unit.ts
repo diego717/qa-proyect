@@ -105,3 +105,19 @@ test('third-party requests check the address at connect time (no DNS rebinding w
     server.close();
   }
 });
+
+test("third-party redirect hops respect the profile's never_click patterns", async () => {
+  const fetched: string[] = [];
+  const findings = await checkLinks([{ url: 'https://ext.test/start', text: 'Partner', foundOn: 'http://app.test/', thirdParty: true }], {
+    sessionRequest: undefined as never,
+    origin: 'http://app.test',
+    allowSameOrigin: () => true,
+    neverClick: ['archive'],
+    thirdPartyFetch: async (_method, url) => {
+      fetched.push(url);
+      return url.endsWith('/start') ? { status: 302, location: 'https://ext.test/archive/1' } : { status: 404 };
+    },
+  });
+  expect(fetched.every((url) => !url.includes('/archive'))).toBe(true);
+  expect(findings).toEqual([]);
+});

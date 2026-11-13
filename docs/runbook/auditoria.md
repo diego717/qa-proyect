@@ -59,7 +59,7 @@ El workflow carga solo esos tres nombres para esa auditoría. Nunca ve los de ot
 
 ## 4. Escaneo automático
 
-GitHub → *Actions → Audit scan → Run workflow*, con `audit_id` = `<id>`.
+GitHub → *Actions → Audit scan → Run workflow*, con **Use workflow from: `main`** y `audit_id` = `<id>`. Desde otra rama se niega a correr: el código del escáner sale siempre de `main`, y de la rama `audit/<id>` solo se usan los datos.
 
 - Tarda unos minutos. Al terminar, commitea `findings/` y `evidence/` en la rama `audit/<id>`.
 - Si termina en rojo con "blocked", seguí el paso 9.
@@ -106,9 +106,10 @@ Commiteá `review.yaml` y `summary.md` en la rama `audit/<id>` y subilos.
 
 ## 7. Informe y entrega
 
-GitHub → *Actions → Audit report → Run workflow*, con `audit_id` = `<id>`. O en tu máquina: `npm run explorer -w explorer -- report audits/<id>`.
+GitHub → *Actions → Audit report → Run workflow*, desde `main`, con `audit_id` = `<id>`. O en tu máquina: `npm run explorer -w explorer -- report audits/<id>`.
 
 - Si quedan hallazgos sin decidir, falla y dice cuáles.
+- Si el escaneo quedó bloqueado, también falla: un informe sin escaneo parecería "sin problemas". Resolvé el bloqueo (paso 9) y volvé a escanear. Solo si igual querés entregar lo explorado, generalo en tu máquina con `--allow-blocked`: el informe abre con un aviso de que el escaneo no se completó.
 - El informe queda en `audits/<id>/report/informe.html` y como artifact del workflow. Abrilo en el navegador, revisalo entero y exportalo a PDF (Imprimir → Guardar como PDF).
 
 Al entregarlo, completá `delivered_on: AAAA-MM-DD` en `target.yaml`, commiteá y subilo. Desde esa fecha corren los 30 días.

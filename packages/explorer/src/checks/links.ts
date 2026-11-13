@@ -16,6 +16,8 @@ export type LinkCheckOptions = {
   /** Never-click and scope policy for same-origin hops (the crawler's own rules). */
   allowSameOrigin: (url: string) => boolean;
   onRequest?: (method: string, url: string) => void;
+  /** The profile's own never_click patterns, also applied to third-party redirect hops. */
+  neverClick?: string[];
   /** Third-party hops: no cookies, public addresses only. Injectable for tests. */
   thirdPartyFetch?: typeof publicFetch;
 };
@@ -139,7 +141,7 @@ async function finalStatus(method: 'HEAD' | 'GET', url: string, options: LinkChe
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     const parsed = new URL(current);
     const sameOrigin = parsed.origin === options.origin;
-    if (sameOrigin ? !options.allowSameOrigin(current) : isForbiddenUrl(current, '', [])) return null;
+    if (sameOrigin ? !options.allowSameOrigin(current) : isForbiddenUrl(current, '', options.neverClick ?? [])) return null;
     options.onRequest?.(method, current);
     let status: number;
     let location: string | undefined;

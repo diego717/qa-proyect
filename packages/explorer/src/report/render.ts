@@ -13,6 +13,8 @@ export type ReportInput = {
   generatedOn: string;
   /** Reads an evidence file (path relative to the audit dir) to embed it. Omitted: images are left out. */
   readEvidence?: (relativePath: string) => Buffer | null;
+  /** A blocked scan is refused (it would read as "no problems") unless explicitly allowed; then its reason leads the report. */
+  allowBlocked?: boolean;
 };
 
 const SEVERITY_ORDER: Severity[] = ['critical', 'serious', 'moderate', 'minor'];
@@ -82,6 +84,13 @@ function renderFinding(finding: Finding, readEvidence?: ReportInput['readEvidenc
   <ol>${finding.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}</ol>
   ${finding.evidence.detail ? `<p class="detail">${escapeHtml(finding.evidence.detail)}</p>` : ''}
   ${
+    finding.alsoOn?.length
+      ? `<details><summary>También aparece en ${finding.alsoOn.length} ${finding.alsoOn.length === 1 ? 'página más' : 'páginas más'}</summary><ul>${finding.alsoOn
+          .map((u) => `<li>${escapeHtml(u)}</li>`)
+          .join('')}</ul></details>`
+      : ''
+  }
+  ${
     image
       ? `<details class="shot" open><summary>Evidencia (captura de la página; tocá para ocultarla)</summary><img class="evidence" alt="Evidencia de ${escapeHtml(finding.id)}" src="data:image/png;base64,${image.toString('base64')}"></details>`
       : ''
@@ -138,6 +147,8 @@ h3 { font-size: 17px; margin: 8px 0 4px; } h4 { font-size: 14px; margin: 14px 0 
 .shot summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 10px; }
 .explain { background: var(--soft); border-radius: 6px; padding: 8px 12px; margin-top: 12px; font-size: 14px; }
 .explain p { margin: 4px 0; }
+.blocked { border: 2px solid var(--critical); border-radius: 8px; padding: 4px 16px; margin-top: 24px; }
+.blocked h2 { border: 0; color: var(--critical); }
 .counters { display: flex; gap: 24px; flex-wrap: wrap; }
 @media print { main { padding: 0; } .finding { page-break-inside: avoid; } a { color: inherit; } }
 `;
@@ -145,6 +156,13 @@ h3 { font-size: 17px; margin: 8px 0 4px; } h4 { font-size: 14px; margin: 14px 0 
 /** Self-contained HTML report in Spanish, in two layers: a one-page summary, then the reproducible detail. */
 export function renderReport(input: ReportInput): string {
   const { target, scan } = input;
+  if (scan.status === 'blocked' && !input.allowBlocked) {
+    throw new Error(`The scan was blocked (${scan.blockedReason ?? 'no reason'}): fix it and scan again, or render with --allow-blocked.`);
+  }
+  const blockedBanner =
+    scan.status === 'blocked'
+      ? `<section class="blocked"><h2>El escaneo automático no se pudo completar</h2><p>${escapeHtml(scan.blockedReason ?? 'Sin motivo registrado.')}</p><p>Los chequeos automáticos no cubren esta app: la ausencia de hallazgos medidos no significa que no haya problemas.</p></section>`
+      : '';
   const readOnly = scan.target.mode === 'read-only';
   const { included, rejected, pending } = reportable(input.findings);
   const own = sortBySeverity(included.filter((f) => !f.thirdParty));
@@ -172,7 +190,7 @@ export function renderReport(input: ReportInput): string {
       : '<strong>Modo staging</strong>: además de recorrer la app, se enviaron formularios con datos de prueba.'
   }</p>
 </header>
-
+${blockedBanner}
 <section>
   <h2>Resumen</h2>
   ${renderSummary(input.summaryMarkdown)}

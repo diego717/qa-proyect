@@ -17,6 +17,8 @@ export type Finding = {
   steps: string[];
   evidence: { screenshot?: string; trace?: string; detail?: string };
   thirdParty?: boolean;
+  /** Other pages where the same problem was seen (shared layout, same asset or message). */
+  alsoOn?: string[];
   checklistItem?: string;
   review: { status: ReviewStatus; note?: string };
 };

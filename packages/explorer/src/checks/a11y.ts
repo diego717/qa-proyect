@@ -12,7 +12,9 @@ export async function checkA11y(page: Page): Promise<Finding[]> {
   return results.violations.map((violation) => {
     const selectors = violation.nodes.slice(0, 3).map((node) => node.target.join(' '));
     const impact = IMPACTS.has(violation.impact as Severity) ? (violation.impact as Severity) : 'minor';
-    return measured('a11y', page.url(), violation.id, {
+    // Keyed by rule and elements, not by page: a violation in the shared layout is one finding.
+    return measured('a11y', page.url(), `${violation.id}|${selectors.join(',')}`, {
+      idUrl: `${new URL(page.url()).origin}/`,
       title: `Accesibilidad: ${violation.help}`,
       severity: impact,
       severitySource: 'axe impact',

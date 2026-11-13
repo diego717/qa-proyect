@@ -6,7 +6,7 @@
 //   retention <dir>          lists audits in <dir>/<id>/target.yaml delivered more than 30 days ago (exit 1 if any)
 //   secret-names <auditId>   prints AUDIT_<ID>_EMAIL,_PASSWORD,_TOTP_SECRET: the only secrets that audit may load
 //   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
-//   report <auditDir> [--allow-pending]   review.yaml + summary.md → report/informe.html
+//   report <auditDir> [--allow-pending] [--allow-blocked]   review.yaml + summary.md → report/informe.html
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -28,19 +28,27 @@ export function loadFindings(auditDir: string): Finding[] {
   if (!existsSync(measuredFile)) throw new Error(`${measuredFile} not found: run the scan first`);
   const measured = JSON.parse(readFileSync(measuredFile, 'utf8')).findings as Finding[];
   const observedFile = path.join(auditDir, 'findings', 'observed.json');
-  const raw = existsSync(observedFile) ? (JSON.parse(readFileSync(observedFile, 'utf8')).findings as Finding[]) : [];
-  // observed.json is written by the model: never trust its source or review state. Decisions live in review.yaml.
+  // observed.json is written by the model: validated every time it is loaded (evidence, checklist item, id...),
+  // and never trusted for its source, review state or third-party flag. Decisions live in review.yaml.
+  let raw: Finding[] = [];
+  if (existsSync(observedFile)) {
+    const checklistIds = new Set(loadChecklists(CHECKLISTS_DIR).map((item) => item.id));
+    const { findings, errors } = validateObserved(JSON.parse(readFileSync(observedFile, 'utf8')), { auditDir, checklistIds });
+    if (errors.length) throw new Error(`observed.json is not valid (run validate-observed):\n${errors.map((e) => `  - ${e}`).join('\n')}`);
+    raw = findings;
+  }
   const measuredIds = new Set(measured.map((f) => f.id));
   const observed = raw.map((finding): Finding => {
     if (measuredIds.has(finding.id)) throw new Error(`observed.json: ${JSON.stringify(finding.id)} duplicates a measured finding`);
-    return { ...finding, source: 'model', review: { status: 'pending_review' } };
+    const { thirdParty: _ignored, ...rest } = finding;
+    return { ...rest, source: 'model', review: { status: 'pending_review' } };
   });
   return [...measured, ...observed];
 }
 
 export { evidenceReader };
 
-function report(auditDir: string, allowPending: boolean): number {
+function report(auditDir: string, allowPending: boolean, allowBlocked: boolean): number {
   const target = loadTarget(path.join(auditDir, 'target.yaml'));
   const scan = JSON.parse(readFileSync(path.join(auditDir, 'findings', 'measured.json'), 'utf8')) as ScanResult;
   const reviewFile = path.join(auditDir, 'review.yaml');
@@ -59,6 +67,7 @@ function report(auditDir: string, allowPending: boolean): number {
     summaryMarkdown: readFileSync(summaryFile, 'utf8'),
     generatedOn: new Date().toISOString().slice(0, 10),
     readEvidence: evidenceReader(auditDir),
+    allowBlocked,
   });
   const out = safeWriteFile(auditDir, 'report/informe.html', html);
   console.log(`${out} written.`);
@@ -67,7 +76,8 @@ function report(auditDir: string, allowPending: boolean): number {
 
 export async function main(argv: string[]): Promise<number> {
   const allowPending = argv.includes('--allow-pending');
-  const [command, auditDirArg] = argv.filter((arg) => arg !== '--allow-pending');
+  const allowBlocked = argv.includes('--allow-blocked');
+  const [command, auditDirArg] = argv.filter((arg) => arg !== '--allow-pending' && arg !== '--allow-blocked');
   if (!command || !auditDirArg) {
     console.error(USAGE);
     return 1;
@@ -95,7 +105,7 @@ export async function main(argv: string[]): Promise<number> {
       console.log(`${reviewFile} written: ${findings.length} finding(s), ${toReview} from the model to review.`);
       return 0;
     }
-    if (command === 'report') return report(auditDir, allowPending);
+    if (command === 'report') return report(auditDir, allowPending, allowBlocked);
     if (command === 'secret-names') {
       console.log(auditSecretNames(auditDirArg).join(',')); // here the argument is the audit id
       return 0;

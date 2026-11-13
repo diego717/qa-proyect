@@ -57,6 +57,9 @@ const LAB_LINKS = [
   ['/lab/delete-all', 'Delete all'],
   ['/lab/redirect', 'Shortcut'],
   ['/lab/archive', 'Archive'],
+  ['/lab/shared-a', 'Shared layout A'],
+  ['/lab/shared-b', 'Shared layout B'],
+  ['/lab/form-back', 'Form that redirects back with errors'],
 ];
 
 const labIndex = () =>
@@ -96,11 +99,14 @@ const LAB_PAGES = {
       'Archive',
       '<main><h1>Archive</h1><ul><li><a href="/lab/archive-item">Archived item</a></li><li><a href="/lab/archive-item">Delete</a></li></ul></main>',
     ),
+  // The same broken asset in a shared layout: must be one finding, not one per page.
+  '/lab/shared-a': () => layout('Shared A', '<main><h1>Shared A</h1><img src="/lab/missing-logo.png" alt="Logo"></main>'),
+  '/lab/shared-b': () => layout('Shared B', '<main><h1>Shared B</h1><img src="/lab/missing-logo.png" alt="Logo"></main>'),
   '/lab/form': () => subscribeForm('/lab/form'),
   '/lab/form-ok': () => subscribeForm('/lab/form-ok'),
 };
 
-const EMAIL = /^[^s@]+@[^s@]+.[^s@]+$/;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -206,6 +212,16 @@ export function createServer({ resetToken, users = DEFAULT_USERS, plantedBugs = 
         if (route === 'POST /lab/form') {
           await readBody(req);
           return send(res, 200, subscribeForm('/lab/form', '<p>Saved</p>'));
+        }
+        // Validation by redirect-back-with-errors (Laravel back()->withErrors(), Rails): not an acceptance.
+        if (route === 'GET /lab/form-back') {
+          const message = url.searchParams.get('error') ? '<p role="alert">Invalid email</p>' : '';
+          return send(res, 200, subscribeForm('/lab/form-back', message));
+        }
+        if (route === 'POST /lab/form-back') {
+          const email = (await readBody(req)).get('email') ?? '';
+          if (!EMAIL.test(email)) return redirect(res, '/lab/form-back?error=1');
+          return send(res, 200, subscribeForm('/lab/form-back', '<p>Saved</p>'));
         }
         if (route === 'POST /lab/form-ok') {
           const email = (await readBody(req)).get('email') ?? '';

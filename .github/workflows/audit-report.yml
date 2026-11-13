@@ -25,6 +25,15 @@ jobs:
       AUDIT_ID: ${{ inputs.audit_id }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The tool code and this workflow must come from main: the audit branch is written by the
+      # exploration (model) session and must never run with the repository secrets.
+      - name: Only from main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Run this workflow from main (Use workflow from: main). The audit branch only holds data."
+            exit 1
+          fi
+
       - name: Check the audit id
         run: |
           if ! printf '%s' "$AUDIT_ID" | grep -Eq '^[a-z0-9][a-z0-9-]{0,40}$'; then
@@ -46,9 +55,17 @@ jobs:
             exit 1
           fi
 
+      # Tool code from main, without push credentials.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Only the audit's data folder from its branch, in audit-branch/ (the results are pushed from there).
       - uses: actions/checkout@v7
         with:
           ref: audit/${{ inputs.audit_id }}
+          path: audit-branch
+          sparse-checkout: audits/${{ inputs.audit_id }}
 
       - uses: actions/setup-node@v7
         with:
@@ -60,9 +77,10 @@ jobs:
 
       # Fails if a model finding is still pending review or summary.md is missing.
       - name: Render the report
-        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON packages/explorer/src/cli.ts report "audits/$AUDIT_ID"
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON packages/explorer/src/cli.ts report "audit-branch/audits/$AUDIT_ID"
 
       - name: Commit the report to the audit branch
+        working-directory: audit-branch
         run: |
           git config user.name "qa-explorer"
           git config user.email "qa-explorer@users.noreply.github.com"
@@ -78,5 +96,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: audit-report-${{ inputs.audit_id }}
-          path: audits/${{ inputs.audit_id }}/report/informe.html
+          path: audit-branch/audits/${{ inputs.audit_id }}/report/informe.html
           retention-days: 7

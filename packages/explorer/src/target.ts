@@ -125,6 +125,16 @@ export function loadTarget(file: string): Target {
   });
 
   const start = asStrings(scope.start);
+  // Patterns are compiled now: an invalid one would otherwise throw mid-crawl (inside the navigation guard).
+  const patterns = (field: string, value: unknown) =>
+    asStrings(value).map((source, index) => {
+      try {
+        new RegExp(source, 'i');
+      } catch {
+        fail(file, `${field}[${index}] is not a valid regular expression`);
+      }
+      return source;
+    });
   const deliveredOn = asDate(raw.delivered_on);
   return {
     id,
@@ -135,13 +145,13 @@ export function loadTarget(file: string): Target {
     loginPath: login?.path ?? asString(raw.login_path) ?? null,
     scope: {
       start: start.length ? start : ['/'],
-      include: asStrings(scope.include),
-      exclude: asStrings(scope.exclude),
+      include: patterns('scope.include', scope.include),
+      exclude: patterns('scope.exclude', scope.exclude),
       maxPages,
       flows: asStrings(scope.flows),
       maxFlows,
     },
-    neverClick: asStrings(raw.never_click),
+    neverClick: patterns('never_click', raw.never_click),
     knownNoise,
     authorization,
     report: { brand: asString(asRecord(raw.report).brand) ?? 'QA' },

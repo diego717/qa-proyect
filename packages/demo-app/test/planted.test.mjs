@@ -37,6 +37,9 @@ const LAB_PAGES = [
   '/lab/delete-all',
   '/lab/redirect',
   '/lab/archive',
+  '/lab/shared-a',
+  '/lab/shared-b',
+  '/lab/form-back',
 ];
 
 let lab;
@@ -131,4 +134,20 @@ test('redirect leads to delete-all, archive-item deletes behind an innocent path
   } finally {
     own.server.close();
   }
+});
+
+test('form-ok accepts a valid email that contains an "s" and a dot', async () => {
+  assert.equal((await post('/lab/form-ok', { email: 'test@demo.test' })).status, 200);
+  assert.equal((await post('/lab/form-ok', { email: 'test@demotest' })).status, 400);
+});
+
+test('form-back redirects back with an error on invalid input', async () => {
+  const res = await post('/lab/form-back', { email: 'not-an-email' });
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get('location'), '/lab/form-back?error=1');
+  assert.ok((await (await get('/lab/form-back?error=1')).text()).includes('role="alert"'));
+});
+
+test('shared-a and shared-b use the same missing logo', async () => {
+  for (const page of ['/lab/shared-a', '/lab/shared-b']) assert.ok((await (await get(page)).text()).includes('src="/lab/missing-logo.png"'));
 });

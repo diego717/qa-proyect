@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadFindings } from '../src/cli.ts';
+import { findingId } from '../src/finding.ts';
 
 function audit(measured: object[], observed: object[]): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'qa-load-'));
@@ -14,19 +15,30 @@ function audit(measured: object[], observed: object[]): string {
 
 const base = { check: 'exploration', title: 't', severity: 'minor', severitySource: 's', url: 'http://a/x', steps: ['a', 'b'], evidence: {} };
 
-test('observed findings are always model findings pending review, whatever the file says', () => {
+test('observed findings are validated when loaded: no evidence or a spoofed source never reach review or report', () => {
   const dir = audit([], [{ ...base, id: 'exploration-0000000001', source: 'measured', review: { status: 'confirmed' } }]);
-  const [loaded] = loadFindings(dir);
-  expect(loaded.source).toBe('model');
-  expect(loaded.review).toEqual({ status: 'pending_review' });
+  expect(() => loadFindings(dir)).toThrow(/observed.json.*source must be "model"/s);
 });
 
-test('an observed finding cannot reuse a measured id', () => {
-  const dir = audit(
-    [{ ...base, check: 'http-error', id: 'http-error-0000000001', source: 'measured', review: { status: 'not_required' } }],
-    [{ ...base, id: 'http-error-0000000001', source: 'model', review: { status: 'pending_review' } }],
-  );
-  expect(() => loadFindings(dir)).toThrow(/duplicates a measured finding/);
+test('a valid observed finding loads as model, pending, and never as third party', () => {
+  const dir = audit([], []);
+  mkdirSync(path.join(dir, 'evidence'));
+  writeFileSync(path.join(dir, 'evidence', 'x.png'), Buffer.from('89504e470d0a1a0a00', 'hex'));
+  const title = 'Algo observado';
+  const finding = {
+    ...base,
+    title,
+    id: findingId('exploration', base.url, 'formularios#4' + title),
+    source: 'model',
+    checklistItem: 'formularios#4',
+    evidence: { screenshot: 'evidence/x.png' },
+    thirdParty: true,
+    review: { status: 'pending_review' },
+  };
+  writeFileSync(path.join(dir, 'findings', 'observed.json'), JSON.stringify({ findings: [finding] }));
+  const [loaded] = loadFindings(dir);
+  expect(loaded).toMatchObject({ source: 'model', review: { status: 'pending_review' } });
+  expect(loaded.thirdParty).toBeUndefined();
 });
 
 test('evidence is only read from the audit evidence folder, and only PNG files', async () => {

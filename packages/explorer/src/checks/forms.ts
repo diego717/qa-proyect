@@ -130,7 +130,10 @@ export async function checkFormsInvalid(
     const showsError = await page
       .evaluate(() => !!document.querySelector('[role=alert], [aria-invalid="true"]'))
       .catch(() => false);
-    const accepted = outcome.status < 400 && (outcome.redirectedTo !== null || !showsError);
+    // Redirecting back to the form is how many frameworks report validation errors (Laravel, Rails):
+    // ambiguous, so not reported. Only a success status or a redirect elsewhere, with no error shown, counts.
+    const backToForm = outcome.redirectedTo !== null && new URL(outcome.redirectedTo).pathname === new URL(pageUrl).pathname;
+    const accepted = outcome.status < 400 && !showsError && !backToForm;
     if (!accepted) continue;
 
     const finding = measured('form-accepts-invalid', pageUrl, form.action, {

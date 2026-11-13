@@ -142,6 +142,20 @@ test('login saves the session for the exploration, without the password in it', 
   await expect(saveSession(demoTarget(), { outDir, env: { ...DEMO_ENV, AUDIT_EXAMPLE_PASSWORD: 'nope' } })).rejects.toThrow(/Login failed/);
 });
 
+test('the same broken asset on several pages is one finding that lists every page', async () => {
+  const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
+  const logo = result.findings.filter((f) => f.check === 'broken-image' && (f.evidence.detail ?? '').includes('missing-logo.png'));
+  expect(logo).toHaveLength(1);
+  const pages = [logo[0].url, ...(logo[0].alsoOn ?? [])].map((u) => new URL(u).pathname).sort();
+  expect(pages).toEqual(['/lab/shared-a', '/lab/shared-b']);
+});
+
+test('staging: a form that redirects back with an error is not reported as accepting invalid input', async () => {
+  const result = await runScan(demoTarget({ mode: 'staging' }), { outDir: tempOut(), env: DEMO_ENV });
+  const accepted = result.findings.filter((f) => f.check === 'form-accepts-invalid').map((f) => new URL(f.url).pathname);
+  expect(accepted).toEqual(['/lab/form']);
+});
+
 test('stops at max_pages and says so', async () => {
   const result = await runScan(demoTarget({}, { maxPages: 3 }), { outDir: tempOut(), env: DEMO_ENV });
   expect(result.pages).toHaveLength(3);
@@ -186,16 +200,24 @@ test('third-party failures are flagged and known_noise is ignored', async () => 
       await context.route(`${DEMO}/lab/clean`, (route) =>
         route.fulfill({
           contentType: 'text/html',
-          body: '<!doctype html><html lang="en"><head><title>Clean</title></head><body><main><h1>Clean</h1><script src="https://cdn.example.test/analytics.js"></script></main></body></html>',
+          body: '<!doctype html><html lang="en"><head><title>Clean</title></head><body><main><h1>Clean</h1><script src="https://cdn.example.test/analytics.js"></script><script src="https://cdn.example.test/widget.js"></script></main></body></html>',
         }),
       );
-      await context.route('https://cdn.example.test/**', (route) => route.fulfill({ status: 404, body: 'nope' }));
+      await context.route('https://cdn.example.test/widget.js', (route) =>
+        route.fulfill({ contentType: 'application/javascript', body: "console.error('widget console'); throw new Error('widget boom');" }),
+      );
+      await context.route('https://cdn.example.test/analytics.js', (route) => route.fulfill({ status: 404, body: 'nope' }));
     },
   });
   const thirdParty = result.findings.filter((f) => f.thirdParty);
-  expect(thirdParty).toHaveLength(1);
-  expect(thirdParty[0]).toMatchObject({ check: 'http-error', severity: 'moderate' });
-  expect(thirdParty[0].evidence.detail).toContain('https://cdn.example.test/analytics.js');
+  const http = thirdParty.filter((f) => f.check === 'http-error');
+  expect(http).toHaveLength(1);
+  expect(http[0]).toMatchObject({ severity: 'moderate' });
+  expect(http[0].evidence.detail).toContain('https://cdn.example.test/analytics.js');
+  // errors thrown or logged by a third-party script are flagged too, not blamed on the prospect
+  expect(thirdParty.find((f) => f.check === 'js-error')?.evidence.detail).toContain('widget boom');
+  expect(thirdParty.find((f) => f.check === 'console-error')?.evidence.detail).toContain('widget console');
+  expect(result.findings.filter((f) => !f.thirdParty && (f.evidence.detail ?? '').includes('widget'))).toEqual([]);
   expect(at(result.findings, 'console-error', '/lab/js-error')).toEqual([]);
   expect(at(result.findings, 'js-error', '/lab/js-error')).toHaveLength(1);
 });

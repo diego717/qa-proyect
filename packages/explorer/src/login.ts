@@ -9,8 +9,14 @@ import type { Target } from './target.ts';
  * same form helper the e2e template uses (secrets never reach step titles or logs).
  * Error messages only ever name env vars, never their values.
  */
-export async function authenticate(browser: Browser, target: Target, env: NodeJS.ProcessEnv = process.env): Promise<BrowserContext> {
+export async function authenticate(
+  browser: Browser,
+  target: Target,
+  env: NodeJS.ProcessEnv = process.env,
+  prepare?: (context: BrowserContext) => Promise<void>,
+): Promise<BrowserContext> {
   const context = await browser.newContext({ baseURL: target.baseUrl });
+  await prepare?.(context);
   if (!target.login) return context;
 
   const { login } = target;

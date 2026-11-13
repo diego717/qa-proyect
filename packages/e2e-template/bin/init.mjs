@@ -14,7 +14,7 @@ const EXCLUDED = new Set(['node_modules', '.auth', 'results', 'test-results', 'p
 async function listFiles(root, dir = '') {
   const files = [];
   for (const entry of await readdir(path.join(root, dir), { withFileTypes: true })) {
-    if (EXCLUDED.has(entry.name)) continue;
+    if (EXCLUDED.has(entry.name) || (entry.name.startsWith('.env.') && entry.name !== '.env.example')) continue;
     const relative = dir ? `${dir}/${entry.name}` : entry.name;
     if (entry.isDirectory()) files.push(...(await listFiles(root, relative)));
     else if (entry.isFile()) files.push(relative);

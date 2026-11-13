@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { navigationVerdict, type Guard } from '../src/scan.ts';
+import { admitNavigation, navigationVerdict, type Guard } from '../src/scan.ts';
 import { demoTarget } from './helpers.ts';
 
 const guard = (overrides: Partial<Guard> = {}): Guard => ({
@@ -8,7 +8,7 @@ const guard = (overrides: Partial<Guard> = {}): Guard => ({
   loggingIn: false,
   startUrls: new Set(['http://localhost:3100/items']),
   forbiddenUrls: new Set(),
-  allowSubmit: false,
+  allowedSubmit: null,
   lastNavigationStatus: null,
   lastBlocked: null,
   lastRedirect: null,
@@ -29,4 +29,19 @@ test('a URL that looks like the login page still goes through never-click', () =
 
 test('the login page of another origin is not the login page', () => {
   expect(navigationVerdict(guard(), 'http://evil.test/login', 'GET')).toBe('out-of-scope');
+});
+
+const LAB_FORM = 'http://localhost:3100/lab/form';
+
+test('only the exact form being checked may be submitted, and only once', () => {
+  const g = guard({ allowedSubmit: { url: LAB_FORM, used: false } });
+  expect(navigationVerdict(g, 'http://localhost:3100/lab/form-ok', 'POST')).toBe('never-click');
+  expect(navigationVerdict(g, 'http://localhost:3100/items', 'POST')).toBe('never-click');
+  expect(admitNavigation(g, LAB_FORM, 'POST')).toBe('allow');
+  expect(admitNavigation(g, LAB_FORM, 'POST')).toBe('never-click'); // a second submission is refused
+});
+
+test('a submission out of scope is refused even if it is the one being checked', () => {
+  const g = guard({ target: demoTarget({}, { exclude: ['^/lab/form$'] }), allowedSubmit: { url: LAB_FORM, used: false } });
+  expect(navigationVerdict(g, LAB_FORM, 'POST')).toBe('out-of-scope');
 });

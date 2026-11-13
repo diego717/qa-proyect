@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { isLoginUrl } from '../../../e2e-template/template/e2e/lib/login-form.ts';
 import { measured } from './page-events.ts';
-import { isForbiddenUrl } from '../frontier.ts';
+import { classifyLink } from '../frontier.ts';
 import type { Finding } from '../finding.ts';
 import type { Target } from '../target.ts';
 
@@ -43,7 +43,8 @@ export async function checkFormsStatic(page: Page): Promise<Finding[]> {
 
 /** Lets the form check open the navigation guard for exactly one submission and read what happened. */
 export type SubmitControl = {
-  begin(): void;
+  /** Opens the guard for one submission to exactly this action URL. */
+  begin(actionUrl: string): void;
   /** Null until the guard has seen the submission's response. */
   status(): number | null;
   end(): { status: number | null; redirectedTo: string | null };
@@ -62,7 +63,8 @@ async function waitUntil(condition: () => boolean, timeoutMs: number): Promise<v
  * Staging only. Sends each eligible form once with an invalid email (or an empty required field),
  * bypassing browser validation the way a script or an old browser would, and reports a form whose server
  * accepts it: status < 400 and no error shown ([role=alert] or [aria-invalid=true]).
- * Eligible: has an email or required field, is not the login form, and neither its action nor its button is never-click.
+ * Eligible: has an email or required field, is not the login form, and its action passes the same rules as a link
+ * (same origin, in scope, action and button text not never-click). The guard admits only that one submission.
  */
 export async function checkFormsInvalid(
   page: Page,
@@ -94,14 +96,14 @@ export async function checkFormsInvalid(
     const key = `${pageUrl}|${form.action}`;
     if (!form.hasEmail && !form.hasRequired) continue;
     if (tested.has(key)) continue;
-    if (new URL(form.action).origin !== new URL(target.baseUrl).origin) continue;
     if (loginUrl && isLoginUrl(form.action, loginUrl)) continue;
-    if (isForbiddenUrl(form.action, form.submitText, target.neverClick)) continue;
+    // Same rules as a link: same origin, in scope, and neither the action nor the button text is never-click.
+    if (classifyLink({ href: form.action, text: form.submitText }, target) !== 'crawl') continue;
     tested.add(key);
 
     if (dirty) await page.goto(pageUrl, { waitUntil: 'load' }).catch(() => null);
     dirty = true;
-    control.begin();
+    control.begin(form.action);
     let outcome: { status: number | null; redirectedTo: string | null };
     try {
       await page.evaluate(

@@ -21,14 +21,19 @@ const HEADER = `# Revisión de hallazgos. Editá solo "status" y "note".
 
 type Decision = { status: ReviewStatus; note?: string };
 
-const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+const ALL_STATUSES = new Set<ReviewStatus>([...MODEL_STATUSES, ...MEASURED_STATUSES]);
+const ID = /^[a-z0-9][a-z0-9-]*$/;
+
+// Every value written into review.yaml comes from findings (partly written by the model): one line, inside a comment.
+const oneLine = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim(); // \s includes U+2028/U+2029
 
 function entry(finding: Finding, decision: Decision): string {
+  if (!ID.test(finding.id)) throw new Error(`invalid finding id ${JSON.stringify(finding.id)}`);
   const kind = finding.source === 'model' ? 'observado por el modelo' : 'medido';
   const evidence = finding.evidence.screenshot ?? 'sin screenshot';
   const lines = [
-    `# [${kind}] ${oneLine(finding.title)} (${finding.severity})`,
-    `# ${finding.url} · evidencia: ${evidence}`,
+    `# [${kind}] ${oneLine(finding.title)} (${oneLine(finding.severity)})`,
+    `# ${oneLine(finding.url)} · evidencia: ${oneLine(evidence)}`,
     `${finding.id}:`,
     `  status: ${decision.status}`,
   ];
@@ -52,7 +57,7 @@ export function writeReviewFile(findings: Finding[], existing?: string): string 
   const body = ordered.map((finding) => {
     const kept = previous[finding.id];
     const decision: Decision =
-      kept && typeof kept.status === 'string'
+      kept && typeof kept.status === 'string' && ALL_STATUSES.has(kept.status as ReviewStatus)
         ? { status: kept.status as ReviewStatus, ...(typeof kept.note === 'string' && kept.note ? { note: kept.note } : {}) }
         : { status: finding.review.status };
     return entry(finding, decision);

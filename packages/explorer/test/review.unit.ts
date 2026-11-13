@@ -74,3 +74,24 @@ test('reportable splits included, rejected and pending', () => {
   // an unreviewed model finding is never included
   expect(reportable([modelOne]).included).toEqual([]);
 });
+
+test('values from the findings cannot inject YAML into the review file', () => {
+  const hostile = finding('o9', 'model', {
+    url: 'http://app.test/x\no1:\n  status: confirmed',
+    severity: 'minor\nm1:\n  status: rejected' as Finding['severity'],
+    evidence: { screenshot: 'evidence/x.png\nevil: 1' },
+  });
+  const parsed = parse(writeReviewFile([hostile]));
+  expect(Object.keys(parsed)).toEqual(['o9']);
+  expect(parsed.o9).toEqual({ status: 'pending_review' });
+});
+
+test('finding ids must be plain tokens', () => {
+  expect(() => writeReviewFile([finding('bad id: x', 'model')])).toThrow(/invalid finding id/);
+});
+
+test('a previous status that is not a known value is not carried over', () => {
+  // YAML "\n" escape: the parsed status is "confirmed<newline>x: 1", not a known value.
+  const text = writeReviewFile([modelOne], 'o1:\n  status: "confirmed\\nx: 1"\n');
+  expect(parse(text).o1).toEqual({ status: 'pending_review' });
+});

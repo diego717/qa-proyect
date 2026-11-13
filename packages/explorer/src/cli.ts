@@ -18,7 +18,13 @@ export function loadFindings(auditDir: string): Finding[] {
   if (!existsSync(measuredFile)) throw new Error(`${measuredFile} not found: run the scan first`);
   const measured = JSON.parse(readFileSync(measuredFile, 'utf8')).findings as Finding[];
   const observedFile = path.join(auditDir, 'findings', 'observed.json');
-  const observed = existsSync(observedFile) ? (JSON.parse(readFileSync(observedFile, 'utf8')).findings as Finding[]) : [];
+  const raw = existsSync(observedFile) ? (JSON.parse(readFileSync(observedFile, 'utf8')).findings as Finding[]) : [];
+  // observed.json is written by the model: never trust its source or review state. Decisions live in review.yaml.
+  const measuredIds = new Set(measured.map((f) => f.id));
+  const observed = raw.map((finding): Finding => {
+    if (measuredIds.has(finding.id)) throw new Error(`observed.json: ${JSON.stringify(finding.id)} duplicates a measured finding`);
+    return { ...finding, source: 'model', review: { status: 'pending_review' } };
+  });
   return [...measured, ...observed];
 }
 

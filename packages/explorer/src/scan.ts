@@ -33,8 +33,8 @@ export type Guard = {
   startUrls: Set<string>;
   /** URLs that any link marked as never-click: never visited, whatever other links say. */
   forbiddenUrls: Set<string>;
-  /** Form submissions are only allowed while a staging form check runs, one submission at a time. */
-  allowSubmit: boolean;
+  /** The one form submission a staging form check may make: exact URL, used at most once. */
+  allowedSubmit: { url: string; used: boolean } | null;
   /** Status of the last navigation the guard fetched (used to read a form submission's outcome). */
   lastNavigationStatus: number | null;
   /** Last navigation the guard refused, to explain why a page did not load. */
@@ -56,12 +56,23 @@ export function navigationVerdict(guard: Guard, url: string, method: string): Ve
   if (guard.forbiddenUrls.has(normalized) || isForbiddenUrl(normalized, '', guard.target.neverClick)) return 'never-click';
   const sameOrigin = new URL(normalized).origin === new URL(guard.target.baseUrl).origin;
   const isLogin = sameOrigin && !!guard.loginUrl && isLoginUrl(normalized, guard.loginUrl);
-  if (method !== 'GET') return (isLogin && guard.loggingIn) || guard.allowSubmit ? 'allow' : 'never-click';
-  if (isLogin) return 'allow';
+  if (isLogin) return method === 'GET' || guard.loggingIn ? 'allow' : 'never-click';
   const kind = classifyLink({ href: normalized, text: '' }, guard.target);
+  if (method !== 'GET') {
+    if (kind !== 'crawl') return kind === 'never-click' ? 'never-click' : 'out-of-scope';
+    const submit = guard.allowedSubmit;
+    return submit && !submit.used && submit.url === normalized ? 'allow' : 'never-click';
+  }
   if (kind === 'never-click') return 'never-click';
   if (kind === 'crawl' || guard.startUrls.has(normalized)) return 'allow';
   return 'out-of-scope';
+}
+
+/** navigationVerdict, consuming the single allowed form submission when it is used. */
+export function admitNavigation(guard: Guard, url: string, method: string): Verdict {
+  const verdict = navigationVerdict(guard, url, method);
+  if (verdict === 'allow' && method !== 'GET' && guard.allowedSubmit && !guard.loggingIn) guard.allowedSubmit.used = true;
+  return verdict;
 }
 
 /**
@@ -80,7 +91,7 @@ async function installNavigationGuard(context: BrowserContext, guard: Guard): Pr
       mainFrameNavigation = false;
     }
     if (!mainFrameNavigation) return route.fallback();
-    const verdict = navigationVerdict(guard, request.url(), request.method());
+    const verdict = admitNavigation(guard, request.url(), request.method());
     if (verdict !== 'allow') {
       guard.lastBlocked = { url: request.url(), reason: verdict };
       return route.abort('blockedbyclient');
@@ -139,7 +150,7 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
     loggingIn: true,
     startUrls: new Set(target.scope.start.map((s) => normalizeUrl(s, target.baseUrl)).filter((u): u is string => !!u)),
     forbiddenUrls: new Set(),
-    allowSubmit: false,
+    allowedSubmit: null,
     lastNavigationStatus: null,
     lastBlocked: null,
     lastRedirect: null,
@@ -194,14 +205,15 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
   const findingIds = new Set<string>();
   const testedForms = new Set<string>();
   const submitControl: SubmitControl = {
-    begin() {
+    begin(actionUrl: string) {
       guard.lastNavigationStatus = null;
       guard.lastRedirect = null;
-      guard.allowSubmit = true;
+      const normalized = normalizeUrl(actionUrl, target.baseUrl);
+      guard.allowedSubmit = normalized ? { url: normalized, used: false } : null;
     },
     status: () => guard.lastNavigationStatus,
     end() {
-      guard.allowSubmit = false;
+      guard.allowedSubmit = null;
       const redirect = guard.lastRedirect as Guard['lastRedirect'];
       return { status: guard.lastNavigationStatus, redirectedTo: redirect && redirect.verdict === 'allow' ? redirect.to : null };
     },

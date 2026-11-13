@@ -1,11 +1,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { chromium, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, request as playwrightRequest, type BrowserContext, type Page } from '@playwright/test';
 import { isLoginUrl } from '../../e2e-template/template/e2e/lib/login-form.ts';
 import { authenticate } from './login.ts';
 import { classifyLink, normalizeUrl } from './frontier.ts';
 import { measured, watchPage } from './checks/page-events.ts';
-import { checkLinks, type LinkToCheck } from './checks/links.ts';
+import { checkLinks, type LinkCheckOptions, type LinkToCheck } from './checks/links.ts';
 import { checkA11y } from './checks/a11y.ts';
 import { measureTiming, timingFindings } from './checks/timing.ts';
 import { checkFormsStatic } from './checks/forms.ts';
@@ -23,6 +23,73 @@ export type ScanOptions = {
 };
 
 const NAV_TIMEOUT = 30_000;
+
+/** Safety state shared by the navigation guard, the crawler and the link checks. */
+type Guard = {
+  target: Target;
+  loginUrl: string | null;
+  startUrls: Set<string>;
+  /** URLs that any link marked as never-click: never visited, whatever other links say. */
+  forbiddenUrls: Set<string>;
+  /** Form submissions are only allowed while a staging form check runs (Task 7). */
+  allowSubmit: boolean;
+  /** Last navigation the guard refused, to explain why a page did not load. */
+  lastBlocked: { url: string; reason: 'never-click' | 'out-of-scope' } | null;
+  /** Last redirect the guard stopped: the crawler follows it itself, so the next hop is checked again. */
+  lastRedirect: { to: string; verdict: Verdict } | null;
+};
+
+type Verdict = 'allow' | 'never-click' | 'out-of-scope';
+const MAX_REDIRECTS = 5;
+
+function navigationVerdict(guard: Guard, url: string, method: string): Verdict {
+  if (guard.loginUrl && isLoginUrl(url, guard.loginUrl)) return 'allow';
+  if (method !== 'GET') return guard.allowSubmit ? 'allow' : 'never-click';
+  const normalized = normalizeUrl(url, guard.target.baseUrl);
+  if (!normalized) return 'out-of-scope';
+  if (guard.forbiddenUrls.has(normalized)) return 'never-click';
+  const kind = classifyLink({ href: normalized, text: '' }, guard.target);
+  if (kind === 'never-click') return 'never-click';
+  if (kind === 'crawl' || guard.startUrls.has(normalized)) return 'allow';
+  return 'out-of-scope';
+}
+
+/**
+ * Every main-frame navigation goes through here. The request is fetched without following redirects and
+ * a redirect is never handed to the browser: Chromium would follow it without routing the next hop (verified).
+ * Instead the navigation is aborted and the crawler navigates to the next hop itself, which is checked again.
+ * Only the login POST is left to the browser: logging in is the one action the scan must perform.
+ */
+async function installNavigationGuard(context: BrowserContext, guard: Guard): Promise<void> {
+  await context.route('**/*', async (route) => {
+    const request = route.request();
+    let mainFrameNavigation = false;
+    try {
+      mainFrameNavigation = request.isNavigationRequest() && request.frame().parentFrame() === null;
+    } catch {
+      mainFrameNavigation = false;
+    }
+    if (!mainFrameNavigation) return route.fallback();
+    const verdict = navigationVerdict(guard, request.url(), request.method());
+    if (verdict !== 'allow') {
+      guard.lastBlocked = { url: request.url(), reason: verdict };
+      return route.abort('blockedbyclient');
+    }
+    if (request.method() !== 'GET' && guard.loginUrl && isLoginUrl(request.url(), guard.loginUrl)) return route.fallback();
+    try {
+      const response = await route.fetch({ maxRedirects: 0 });
+      const location = response.headers()['location'];
+      if (response.status() >= 300 && response.status() < 400 && location) {
+        const to = new URL(location, request.url()).href;
+        guard.lastRedirect = { to, verdict: navigationVerdict(guard, to, 'GET') };
+        return route.abort('blockedbyclient');
+      }
+      await route.fulfill({ response });
+    } catch {
+      await route.abort('failed').catch(() => {});
+    }
+  });
+}
 
 /** Drops findings that match a `known_noise` pattern (case-insensitive substring). */
 function isKnownNoise(finding: Finding, target: Target): boolean {
@@ -55,12 +122,25 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
     findings: [],
   };
 
+  const guard: Guard = {
+    target,
+    loginUrl: target.loginPath ? new URL(target.loginPath, target.baseUrl).href : null,
+    startUrls: new Set(target.scope.start.map((s) => normalizeUrl(s, target.baseUrl)).filter((u): u is string => !!u)),
+    forbiddenUrls: new Set(),
+    allowSubmit: false,
+    lastBlocked: null,
+    lastRedirect: null,
+  };
+
   const browser = await chromium.launch({ headless: options.headless ?? true });
+  const anonymousRequest = await playwrightRequest.newContext();
   try {
     let context: BrowserContext;
     try {
       context = await authenticate(browser, target, env, async (ctx) => {
         if (options.onRequest) ctx.on('request', (request) => options.onRequest?.(request.method(), request.url()));
+        // Registered before the test hooks: later routes run first, so tests can still fake responses.
+        await installNavigationGuard(ctx, guard);
         await options.prepareContext?.(ctx);
       });
     } catch (error) {
@@ -71,7 +151,13 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
     }
 
     const page = await context.newPage();
-    await crawl(page, target, result, outDir, options);
+    await crawl(page, guard, result, outDir, {
+      sessionRequest: context.request,
+      anonymousRequest,
+      origin: new URL(target.baseUrl).origin,
+      allowSameOrigin: (url) => navigationVerdict(guard, url, 'GET') === 'allow',
+      onRequest: options.onRequest,
+    });
 
     if (!result.pages.some((p) => p.status === 'scanned')) {
       result.status = 'blocked';
@@ -80,15 +166,16 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
     }
     return write(outDir, result);
   } finally {
+    await anonymousRequest.dispose();
     await browser.close();
   }
 }
 
-async function crawl(page: Page, target: Target, result: ScanResult, outDir: string, options: ScanOptions): Promise<void> {
+async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: string, linkOptions: LinkCheckOptions): Promise<void> {
+  const { target, loginUrl } = guard;
   const origin = new URL(target.baseUrl).origin;
   const checkedLinks = new Set<string>();
-  const loginUrl = target.loginPath ? new URL(target.loginPath, target.baseUrl).href : null;
-  const queue: string[] = [];
+  let queue: string[] = [];
   const seen = new Set<string>();
   const linkText = new Map<string, string>();
   const skipped = new Set<string>();
@@ -101,34 +188,48 @@ async function crawl(page: Page, target: Target, result: ScanResult, outDir: str
     result.skippedLinks.push(link);
   };
 
-  for (const start of target.scope.start) {
-    const url = normalizeUrl(start, target.baseUrl);
-    if (url && !seen.has(url)) {
-      seen.add(url);
-      queue.push(url);
-    }
+  for (const url of guard.startUrls) {
+    seen.add(url);
+    queue.push(url);
   }
 
   while (queue.length) {
     const url = queue.shift() as string;
+    if (guard.forbiddenUrls.has(url)) continue;
     if (result.pages.length >= target.scope.maxPages) {
       skip({ url, text: linkText.get(url) ?? '', reason: 'max-pages' });
       continue;
     }
 
     const watcher = watchPage(page, target);
-    const response = await page.goto(url, { waitUntil: 'load', timeout: NAV_TIMEOUT }).catch(() => null);
+    let response = null;
+    let blocked: Guard['lastBlocked'] = null;
+    let next: string | null = url;
+    for (let hop = 0; next && hop <= MAX_REDIRECTS; hop++) {
+      guard.lastBlocked = null;
+      guard.lastRedirect = null;
+      const current: string = next;
+      next = null;
+      response = await page.goto(current, { waitUntil: 'load', timeout: NAV_TIMEOUT }).catch(() => null);
+      if (response) break;
+      // An aborted navigation loads Chrome's error page; let it finish or it interrupts the next hop.
+      await page.waitForURL(/^chrome-error:/, { timeout: 2_000 }).catch(() => {});
+      const redirect = guard.lastRedirect as Guard['lastRedirect'];
+      if (redirect && redirect.verdict === 'allow') next = redirect.to;
+      else if (redirect) blocked = { url: redirect.to, reason: redirect.verdict === 'never-click' ? 'never-click' : 'out-of-scope' };
+      else blocked = guard.lastBlocked as Guard['lastBlocked'];
+    }
     await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
     const pageFindings = watcher.stop();
-    const contentChecks = async (status: number) => {
-      if (status >= 400) return; // error pages are reported by http-error / broken-link
-      pageFindings.push(...timingFindings(page.url(), await measureTiming(page).catch(() => ({ ttfbMs: 0, lcpMs: null }))));
-      pageFindings.push(...(await checkA11y(page).catch(() => [])));
-      pageFindings.push(...(await checkFormsStatic(page).catch(() => [])));
-    };
 
     if (!response) {
-      result.pages.push({ url, status: 'blocked', reason: 'did not load' });
+      if (blocked) {
+        const label = blocked.reason === 'never-click' ? 'redirect to a forbidden URL' : 'redirect out of scope';
+        result.pages.push({ url, status: 'blocked', reason: `${label} (${blocked.url})` });
+        skip({ url: blocked.url, text: `(redirect from ${url})`, reason: blocked.reason });
+      } else {
+        result.pages.push({ url, status: 'blocked', reason: 'did not load' });
+      }
       continue;
     }
     const finalUrl = page.url();
@@ -150,32 +251,51 @@ async function crawl(page: Page, target: Target, result: ScanResult, outDir: str
         }),
       );
     }
+    if (status < 400) {
+      // Error pages are already findings (http-error / broken-link): no content checks on them.
+      pageFindings.push(...timingFindings(page.url(), await measureTiming(page).catch(() => ({ ttfbMs: 0, lcpMs: null }))));
+      pageFindings.push(...(await checkA11y(page).catch(() => [])));
+      pageFindings.push(...(await checkFormsStatic(page).catch(() => [])));
+    }
 
-    await contentChecks(status);
+    const links = (
+      await page
+        .$$eval('a[href]', (anchors) => anchors.map((a) => ({ href: (a as HTMLAnchorElement).href, text: (a.textContent ?? '').trim() })))
+        .catch(() => [] as { href: string; text: string }[])
+    ).map((link) => {
+      const normalized = normalizeUrl(link.href, finalUrl);
+      return { ...link, normalized, kind: classifyLink({ href: normalized ?? link.href, text: link.text }, target) };
+    });
 
-    const links = await page
-      .$$eval('a[href]', (anchors) => anchors.map((a) => ({ href: (a as HTMLAnchorElement).href, text: (a.textContent ?? '').trim() })))
-      .catch(() => [] as { href: string; text: string }[]);
+    // First pass: a URL is forbidden as soon as any link to it looks destructive, whatever its other links say.
+    for (const link of links) {
+      if (link.kind === 'never-click' && link.normalized) guard.forbiddenUrls.add(link.normalized);
+    }
+    queue = queue.filter((queued) => !guard.forbiddenUrls.has(queued));
+
     const toCheck: LinkToCheck[] = [];
     for (const link of links) {
-      const normalized = normalizeUrl(link.href, finalUrl);
-      const kind = classifyLink({ href: normalized ?? link.href, text: link.text }, target);
+      const { normalized, kind, text } = link;
+      if (normalized && guard.forbiddenUrls.has(normalized)) {
+        if (kind === 'never-click') skip({ url: normalized, text, reason: 'never-click' });
+        continue;
+      }
       if ((kind === 'crawl' || kind === 'external') && normalized && !checkedLinks.has(normalized)) {
         checkedLinks.add(normalized);
-        toCheck.push({ url: normalized, text: link.text, foundOn: url, thirdParty: new URL(normalized).origin !== origin });
+        toCheck.push({ url: normalized, text, foundOn: url, thirdParty: new URL(normalized).origin !== origin });
       }
       if (kind === 'crawl' && normalized) {
         if (!seen.has(normalized)) {
           seen.add(normalized);
-          linkText.set(normalized, link.text);
+          linkText.set(normalized, text);
           queue.push(normalized);
         }
-      } else if (kind === 'never-click' || kind === 'out-of-scope' || kind === 'not-a-page') {
-        skip({ url: normalized ?? link.href, text: link.text, reason: kind });
+      } else if (kind === 'out-of-scope' || kind === 'not-a-page') {
+        skip({ url: normalized ?? link.href, text, reason: kind });
       }
     }
 
-    pageFindings.push(...(await checkLinks(page.context().request, toCheck, options.onRequest)));
+    pageFindings.push(...(await checkLinks(toCheck, linkOptions)));
 
     const fresh = pageFindings.filter((f) => !isKnownNoise(f, target) && !findingIds.has(f.id));
     if (fresh.length) {

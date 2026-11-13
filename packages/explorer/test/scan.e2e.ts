@@ -70,6 +70,25 @@ test('never visits the delete-all link and leaves data untouched', async () => {
   expect(await itemsHtml()).toContain('Seed item');
 });
 
+test('a redirect to a never-click URL is not followed, by the crawler or the link check', async () => {
+  const result = await runScan(demoTarget({}, { include: ['^/items$', '^/lab$', '^/lab/redirect$'] }), { outDir: tempOut(), env: DEMO_ENV });
+  expect(await itemsHtml()).toContain('Seed item');
+  expect(result.pages.find((p) => p.url === `${DEMO}/lab/redirect`)).toMatchObject({ status: 'blocked' });
+  expect(result.pages.find((p) => p.url === `${DEMO}/lab/redirect`)?.reason).toMatch(/redirect to a forbidden URL/);
+});
+
+test('a URL is never visited if any link to it looks destructive', async () => {
+  const requested: string[] = [];
+  const result = await runScan(demoTarget({}, { include: ['^/items$', '^/lab$', '^/lab/archive'] }), {
+    outDir: tempOut(),
+    env: DEMO_ENV,
+    onRequest: (_m, url) => requested.push(url),
+  });
+  expect(await itemsHtml()).toContain('Seed item');
+  expect(requested.filter((url) => url.includes('/lab/archive-item'))).toEqual([]);
+  expect(result.skippedLinks).toContainEqual({ url: `${DEMO}/lab/archive-item`, text: 'Delete', reason: 'never-click' });
+});
+
 test('the only POST of a read-only scan is the login', async () => {
   const writes: string[] = [];
   await runScan(demoTarget(), {

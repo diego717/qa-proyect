@@ -55,6 +55,8 @@ const LAB_LINKS = [
   ['/lab/form-ok', 'Form with validation'],
   ['/lab/slow', 'Slow page'],
   ['/lab/delete-all', 'Delete all'],
+  ['/lab/redirect', 'Shortcut'],
+  ['/lab/archive', 'Archive'],
 ];
 
 const labIndex = () =>
@@ -87,6 +89,12 @@ const LAB_PAGES = {
   <label for="mail">Email</label><input id="mail" name="email" type="text">
   <button type="submit">Send</button>
 </form></main>`,
+    ),
+  // A dangerous GET behind an innocent path: only the second anchor's text gives it away.
+  '/lab/archive': () =>
+    layout(
+      'Archive',
+      '<main><h1>Archive</h1><ul><li><a href="/lab/archive-item">Archived item</a></li><li><a href="/lab/archive-item">Delete</a></li></ul></main>',
     ),
   '/lab/form': () => subscribeForm('/lab/form'),
   '/lab/form-ok': () => subscribeForm('/lab/form-ok'),
@@ -184,6 +192,12 @@ export function createServer({ resetToken, users = DEFAULT_USERS, plantedBugs = 
         if (route === 'GET /lab/slow') {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           return send(res, 200, layout('Slow', '<main><h1>Slow page</h1></main>'));
+        }
+        // An innocent-looking link that redirects to a destructive URL.
+        if (route === 'GET /lab/redirect') return redirect(res, '/lab/delete-all');
+        if (route === 'GET /lab/archive-item') {
+          items = [];
+          return send(res, 200, layout('Archived', '<main><h1>Item deleted</h1></main>'));
         }
         if (route === 'GET /lab/delete-all') {
           items = [];

@@ -47,6 +47,23 @@ test('never-click wins over scope', () => {
   expect(classifyLink({ href: '/archive/1', text: 'One' }, target({}, ['archive']))).toBe('never-click');
 });
 
+test('never-click also applies to links to other sites', () => {
+  expect(classifyLink({ href: 'https://sso.other.test/account/delete', text: 'Delete account' }, target())).toBe('never-click');
+  expect(classifyLink({ href: 'https://billing.other.test/portal', text: 'Cancelar suscripción' }, target())).toBe('never-click');
+});
+
+test('percent-encoded paths cannot dodge never-click', () => {
+  expect(classifyLink({ href: '/lab/%64elete-all', text: 'x' }, target())).toBe('never-click');
+  expect(classifyLink({ href: '/account/%72emove?id=1', text: 'x' }, target())).toBe('never-click');
+  expect(classifyLink({ href: '/bad%zzencoding', text: 'x' }, target())).toBe('crawl');
+});
+
+test('scope patterns match the path only, never the query', () => {
+  const t = target({ include: ['/lab'], exclude: ['/private'] });
+  expect(classifyLink({ href: '/other?next=/lab', text: 'x' }, t)).toBe('out-of-scope');
+  expect(classifyLink({ href: '/lab/clean?from=/private', text: 'x' }, t)).toBe('crawl');
+});
+
 test('include and exclude patterns limit the scope', () => {
   const t = target({ include: ['/lab'], exclude: ['/lab/slow'] });
   expect(classifyLink({ href: '/lab/clean', text: 'Clean' }, t)).toBe('crawl');

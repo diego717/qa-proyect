@@ -35,6 +35,8 @@ const LAB_PAGES = [
   '/lab/form-ok',
   '/lab/slow',
   '/lab/delete-all',
+  '/lab/redirect',
+  '/lab/archive',
 ];
 
 let lab;
@@ -111,4 +113,22 @@ test('slow responds after at least 1900 ms', async () => {
   const res = await get('/lab/slow');
   assert.equal(res.status, 200);
   assert.ok(Date.now() - started >= 1900, `took ${Date.now() - started} ms`);
+});
+
+test('redirect leads to delete-all, archive-item deletes behind an innocent path', async () => {
+  const redirected = await get('/lab/redirect');
+  assert.equal(redirected.status, 303);
+  assert.equal(redirected.headers.get('location'), '/lab/delete-all');
+  const archive = await (await get('/lab/archive')).text();
+  assert.ok(archive.includes('<a href="/lab/archive-item">Archived item</a>'));
+  assert.ok(archive.includes('<a href="/lab/archive-item">Delete</a>'));
+  const own = await start({ plantedBugs: true });
+  try {
+    const ownCookie = await login(own.base);
+    await fetch(`${own.base}/lab/archive-item`, { headers: { cookie: ownCookie } });
+    const items = await (await fetch(`${own.base}/items`, { headers: { cookie: ownCookie } })).text();
+    assert.ok(!items.includes('Seed item'));
+  } finally {
+    own.server.close();
+  }
 });

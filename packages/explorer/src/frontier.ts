@@ -23,19 +23,33 @@ export function normalizeUrl(href: string, base: string): string | null {
   return url.href;
 }
 
-const pathOf = (url: string) => {
-  const parsed = new URL(url);
-  return `${parsed.pathname}${parsed.search}`;
+const safeDecode = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 };
 
-/** What the crawler does with a link. Never-click is checked before scope: a forbidden link is never visited. */
+/** True if the link is forbidden in its raw or percent-decoded form (servers decode `%64elete` as `delete`). */
+export function isForbiddenUrl(url: string, text: string, extra: string[]): boolean {
+  const parsed = new URL(url);
+  const raw = `${parsed.pathname}${parsed.search}`;
+  return isForbidden({ text, href: raw }, extra) || isForbidden({ text, href: safeDecode(raw) }, extra);
+}
+
+/**
+ * What the crawler does with a link. Never-click is checked first, for every origin:
+ * a forbidden link is never visited nor checked. Scope patterns are regexes over the decoded path only.
+ */
 export function classifyLink(link: { href: string; text: string }, target: Target): LinkClass {
   const url = normalizeUrl(link.href, target.baseUrl);
   if (!url) return 'not-a-page';
-  if (new URL(url).origin !== new URL(target.baseUrl).origin) return 'external';
-  if (DOWNLOAD.test(new URL(url).pathname)) return 'not-a-page';
-  if (isForbidden({ text: link.text, href: url }, target.neverClick)) return 'never-click';
-  const path = pathOf(url);
+  if (isForbiddenUrl(url, link.text, target.neverClick)) return 'never-click';
+  const parsed = new URL(url);
+  if (parsed.origin !== new URL(target.baseUrl).origin) return 'external';
+  if (DOWNLOAD.test(parsed.pathname)) return 'not-a-page';
+  const path = safeDecode(parsed.pathname);
   const { include, exclude } = target.scope;
   if (include.length && !include.some((pattern) => new RegExp(pattern).test(path))) return 'out-of-scope';
   if (exclude.some((pattern) => new RegExp(pattern).test(path))) return 'out-of-scope';

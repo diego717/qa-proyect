@@ -2,15 +2,17 @@
 // QA explorer CLI. Usage: node src/cli.ts <command> <auditDir>
 //   scan <auditDir>          read-only crawl → findings/measured.json (exit 2 if blocked)
 //   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+//   report <auditDir> [--allow-pending]   review.yaml + summary.md → report/informe.html
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadTarget } from './target.ts';
 import { runScan } from './scan.ts';
-import { writeReviewFile } from './review.ts';
-import type { Finding } from './finding.ts';
+import { applyReview, reportable, writeReviewFile } from './review.ts';
+import { renderReport } from './report/render.ts';
+import type { Finding, ScanResult } from './finding.ts';
 
-const USAGE = 'Usage: node src/cli.ts <scan|review-file> <auditDir>';
+const USAGE = 'Usage: node src/cli.ts <scan|review-file|report> <auditDir> [--allow-pending]';
 
 /** All findings of an audit: measured.json (required) and observed.json (written by the exploration, optional). */
 export function loadFindings(auditDir: string): Finding[] {
@@ -28,8 +30,54 @@ export function loadFindings(auditDir: string): Finding[] {
   return [...measured, ...observed];
 }
 
+/**
+ * Reads evidence for the report. Paths may come from the model (observed.json), so only relative
+ * paths to .png files inside <auditDir>/evidence are read; anything else returns null.
+ */
+export function evidenceReader(auditDir: string): (relativePath: string) => Buffer | null {
+  const evidenceDir = path.resolve(auditDir, 'evidence');
+  return (relativePath) => {
+    if (path.isAbsolute(relativePath) || !relativePath.toLowerCase().endsWith('.png')) return null;
+    const resolved = path.resolve(auditDir, relativePath);
+    if (path.dirname(resolved) !== evidenceDir) return null;
+    try {
+      return readFileSync(resolved);
+    } catch {
+      return null;
+    }
+  };
+}
+
+function report(auditDir: string, allowPending: boolean): number {
+  const target = loadTarget(path.join(auditDir, 'target.yaml'));
+  const scan = JSON.parse(readFileSync(path.join(auditDir, 'findings', 'measured.json'), 'utf8')) as ScanResult;
+  const reviewFile = path.join(auditDir, 'review.yaml');
+  if (!existsSync(reviewFile)) throw new Error(`${reviewFile} not found: run review-file and review the findings first`);
+  const summaryFile = path.join(auditDir, 'summary.md');
+  if (!existsSync(summaryFile)) throw new Error(`${summaryFile} not found: the summary (layer 1) is required`);
+  const findings = applyReview(loadFindings(auditDir), readFileSync(reviewFile, 'utf8'));
+  const { pending } = reportable(findings);
+  if (pending.length && !allowPending) {
+    throw new Error(`${pending.length} findings are still pending review (${pending.map((f) => f.id).join(', ')}). Use --allow-pending to render anyway.`);
+  }
+  const html = renderReport({
+    target,
+    scan,
+    findings,
+    summaryMarkdown: readFileSync(summaryFile, 'utf8'),
+    generatedOn: new Date().toISOString().slice(0, 10),
+    readEvidence: evidenceReader(auditDir),
+  });
+  mkdirSync(path.join(auditDir, 'report'), { recursive: true });
+  const out = path.join(auditDir, 'report', 'informe.html');
+  writeFileSync(out, html);
+  console.log(`${out} written.`);
+  return 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
-  const [command, auditDirArg] = argv;
+  const allowPending = argv.includes('--allow-pending');
+  const [command, auditDirArg] = argv.filter((arg) => arg !== '--allow-pending');
   if (!command || !auditDirArg) {
     console.error(USAGE);
     return 1;
@@ -56,6 +104,7 @@ export async function main(argv: string[]): Promise<number> {
       console.log(`${reviewFile} written: ${findings.length} finding(s), ${toReview} from the model to review.`);
       return 0;
     }
+    if (command === 'report') return report(auditDir, allowPending);
     console.error(`Unknown command "${command}". ${USAGE}`);
     return 1;
   } catch (error) {

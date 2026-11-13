@@ -28,3 +28,17 @@ test('an observed finding cannot reuse a measured id', () => {
   );
   expect(() => loadFindings(dir)).toThrow(/duplicates a measured finding/);
 });
+
+test('evidence is only read from the audit evidence folder, and only PNG files', async () => {
+  const { evidenceReader } = await import('../src/cli.ts');
+  const dir = audit([], []);
+  mkdirSync(path.join(dir, 'evidence'));
+  writeFileSync(path.join(dir, 'evidence', 'ok.png'), 'png-bytes');
+  writeFileSync(path.join(dir, 'secret.txt'), 'top secret');
+  const read = evidenceReader(dir);
+  expect(read('evidence/ok.png')?.toString()).toBe('png-bytes');
+  expect(read('evidence/../secret.txt')).toBeNull();
+  expect(read('../secret.txt')).toBeNull();
+  expect(read(path.join(dir, 'evidence', 'ok.png'))).toBeNull(); // absolute paths are refused
+  expect(read('evidence/missing.png')).toBeNull();
+});

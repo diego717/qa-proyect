@@ -42,10 +42,10 @@ authorization:
   scope: leak test
 `,
   );
-  try {
-    // Async spawn: the demo server runs in this process, a sync spawn would block it.
-    const run = await new Promise<{ stdout: string; stderr: string; status: number | null }>((resolve) => {
-      const child = spawn(process.execPath, ['--disable-warning=MODULE_TYPELESS_PACKAGE_JSON', 'src/cli.ts', 'scan', auditDir], {
+  // Async spawn: the demo server runs in this process, a sync spawn would block it.
+  const cli = (...args: string[]) =>
+    new Promise<{ stdout: string; stderr: string; status: number | null }>((resolve) => {
+      const child = spawn(process.execPath, ['--disable-warning=MODULE_TYPELESS_PACKAGE_JSON', 'src/cli.ts', ...args], {
         cwd: explorerDir,
         env: { ...process.env, AUDIT_LEAK_EMAIL: EMAIL, AUDIT_LEAK_PASSWORD: PASSWORD },
       });
@@ -55,10 +55,19 @@ authorization:
       child.stderr.on('data', (chunk) => (stderr += chunk));
       child.on('close', (status) => resolve({ stdout, stderr, status }));
     });
-    expect(run.status, run.stderr).toBe(0);
-    expect(`${run.stdout}${run.stderr}`).not.toContain(PASSWORD);
+  try {
+    const scan = await cli('scan', auditDir);
+    expect(scan.status, scan.stderr).toBe(0);
+    const review = await cli('review-file', auditDir);
+    expect(review.status, review.stderr).toBe(0);
+    writeFileSync(path.join(auditDir, 'summary.md'), 'Resumen de la auditoría de prueba.\n');
+    const report = await cli('report', auditDir);
+    expect(report.status, report.stderr).toBe(0);
+
+    for (const run of [scan, review, report]) expect(`${run.stdout}${run.stderr}`).not.toContain(PASSWORD);
     const files = textFiles(auditDir);
     expect(files.some((f) => f.endsWith('measured.json'))).toBe(true);
+    expect(files.some((f) => f.endsWith('informe.html'))).toBe(true);
     for (const file of files) expect(readFileSync(file, 'utf8'), file).not.toContain(PASSWORD);
   } finally {
     server.close();

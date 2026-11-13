@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { isLoginUrl } from '../../e2e-template/template/e2e/lib/login-form.ts';
@@ -8,6 +8,7 @@ import { measured, watchPage } from './checks/page-events.ts';
 import { checkLinks, type LinkCheckOptions, type LinkToCheck } from './checks/links.ts';
 import { checkA11y } from './checks/a11y.ts';
 import { measureTiming, timingFindings } from './checks/timing.ts';
+import { safeOutputPath } from './evidence.ts';
 import { checkFormsInvalid, checkFormsStatic, type SubmitControl } from './checks/forms.ts';
 import type { Finding, PageRecord, ScanResult, SkippedLink } from './finding.ts';
 import type { Target } from './target.ts';
@@ -121,7 +122,7 @@ function isKnownNoise(finding: Finding, target: Target): boolean {
 
 function write(outDir: string, result: ScanResult): ScanResult {
   result.finishedAt = new Date().toISOString();
-  writeFileSync(path.join(outDir, 'findings', 'measured.json'), `${JSON.stringify(result, null, 2)}\n`);
+  writeFileSync(safeOutputPath(outDir, 'findings/measured.json'), `${JSON.stringify(result, null, 2)}\n`);
   return result;
 }
 
@@ -131,8 +132,9 @@ function write(outDir: string, result: ScanResult): ScanResult {
  */
 export async function runScan(target: Target, options: ScanOptions): Promise<ScanResult> {
   const { outDir, env = process.env } = options;
-  mkdirSync(path.join(outDir, 'findings'), { recursive: true });
-  mkdirSync(path.join(outDir, 'evidence'), { recursive: true });
+  // Fail early, before any browsing, if the output folders are links (the model can write in the audit folder).
+  safeOutputPath(outDir, 'findings/measured.json');
+  safeOutputPath(outDir, 'evidence/.check');
 
   const result: ScanResult = {
     target: { id: target.id, name: target.name, baseUrl: target.baseUrl, mode: target.mode },
@@ -220,7 +222,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
   };
   const saveShot = (findingId: string, png: Buffer) => {
     const file = `evidence/${findingId}.png`;
-    writeFileSync(path.join(outDir, file), png);
+    writeFileSync(safeOutputPath(outDir, file), png);
     return file;
   };
 
@@ -347,7 +349,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
         findingIds.add(finding.id);
         if (shot) {
           finding.evidence.screenshot = `evidence/${finding.id}.png`;
-          writeFileSync(path.join(outDir, finding.evidence.screenshot), shot);
+          writeFileSync(safeOutputPath(outDir, finding.evidence.screenshot), shot);
         }
         result.findings.push(finding);
       }
@@ -373,9 +375,9 @@ export async function saveSession(target: Target, options: { outDir: string; env
   const browser = await chromium.launch({ headless: options.headless ?? true });
   try {
     const context = await authenticate(browser, target, options.env ?? process.env);
-    const file = path.join(options.outDir, '.auth', 'session.json');
-    mkdirSync(path.dirname(file), { recursive: true });
-    await context.storageState({ path: file });
+    // Session cookies: never written through a link the model could have planted in the audit folder.
+    const file = safeOutputPath(options.outDir, '.auth/session.json');
+    writeFileSync(file, JSON.stringify(await context.storageState(), null, 2), { mode: 0o600 });
     return file;
   } finally {
     await browser.close();

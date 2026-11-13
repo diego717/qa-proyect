@@ -3,20 +3,23 @@
 //   scan <auditDir>          read-only crawl → findings/measured.json (exit 2 if blocked)
 //   login <auditDir>         logs in once → .auth/session.json for the exploration (git-ignored)
 //   validate-observed <auditDir>   checks findings/observed.json written by the exploration
+//   retention <dir>          lists audits in <dir>/<id>/target.yaml delivered more than 30 days ago (exit 1 if any)
+//   secret-prefix <auditId>  prints AUDIT_<ID>_, the prefix of that audit's repository secrets
 //   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
 //   report <auditDir> [--allow-pending]   review.yaml + summary.md → report/informe.html
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadTarget } from './target.ts';
 import { runScan, saveSession } from './scan.ts';
 import { loadChecklists, validateObserved } from './observed.ts';
+import { auditSecretPrefix, expiredAudits, readAudits } from './retention.ts';
 import { applyReview, reportable, writeReviewFile } from './review.ts';
 import { renderReport } from './report/render.ts';
-import { evidenceReader } from './evidence.ts';
+import { evidenceReader, safeOutputPath } from './evidence.ts';
 import type { Finding, ScanResult } from './finding.ts';
 
-const USAGE = 'Usage: node src/cli.ts <scan|login|validate-observed|review-file|report> <auditDir> [--allow-pending]';
+const USAGE = 'Usage: node src/cli.ts <scan|login|validate-observed|review-file|report|retention> <auditDir> [--allow-pending] | secret-prefix <auditId>';
 const CHECKLISTS_DIR = fileURLToPath(new URL('../checklists/', import.meta.url));
 
 /** All findings of an audit: measured.json (required) and observed.json (written by the exploration, optional). */
@@ -57,8 +60,7 @@ function report(auditDir: string, allowPending: boolean): number {
     generatedOn: new Date().toISOString().slice(0, 10),
     readEvidence: evidenceReader(auditDir),
   });
-  mkdirSync(path.join(auditDir, 'report'), { recursive: true });
-  const out = path.join(auditDir, 'report', 'informe.html');
+  const out = safeOutputPath(auditDir, 'report/informe.html');
   writeFileSync(out, html);
   console.log(`${out} written.`);
   return 0;
@@ -89,12 +91,28 @@ export async function main(argv: string[]): Promise<number> {
       const reviewFile = path.join(auditDir, 'review.yaml');
       const existing = existsSync(reviewFile) ? readFileSync(reviewFile, 'utf8') : undefined;
       const findings = loadFindings(auditDir);
-      writeFileSync(reviewFile, writeReviewFile(findings, existing));
+      writeFileSync(safeOutputPath(auditDir, 'review.yaml'), writeReviewFile(findings, existing));
       const toReview = findings.filter((f) => f.source === 'model').length;
       console.log(`${reviewFile} written: ${findings.length} finding(s), ${toReview} from the model to review.`);
       return 0;
     }
     if (command === 'report') return report(auditDir, allowPending);
+    if (command === 'secret-prefix') {
+      console.log(auditSecretPrefix(auditDirArg)); // here the argument is the audit id
+      return 0;
+    }
+    if (command === 'retention') {
+      const today = new Date().toISOString().slice(0, 10);
+      const expired = expiredAudits(readAudits(auditDir), today);
+      if (!expired.length) {
+        console.log(`No audit data past the 30-day retention (checked ${today}).`);
+        return 0;
+      }
+      console.log(`## Auditorías vencidas (${today})\n\nBorrar la rama \`audit/<id>\` de cada una: los datos se guardan hasta 30 días después de la entrega.\n`);
+      console.log('| Auditoría | Entregada | Días vencida |\n|---|---|---|');
+      for (const audit of expired) console.log(`| ${audit.id} | ${audit.deliveredOn} | ${audit.daysOverdue} |`);
+      return 1;
+    }
     if (command === 'login') {
       const file = await saveSession(loadTarget(path.join(auditDir, 'target.yaml')), { outDir: auditDir });
       console.log(`Session saved to ${file} (git-ignored: it holds session cookies). The exploration loads it instead of typing the password.`);

@@ -21,3 +21,17 @@ test('refuses a value that contains the delimiter (it could inject other variabl
     /E2E_A contains the GITHUB_ENV delimiter/,
   );
 });
+
+test('another prefix loads only that prefix (audits load one prospect at a time)', () => {
+  const secrets = { E2E_USER_EMAIL: 'e2e', AUDIT_ACME_EMAIL: 'a@acme.test', AUDIT_OTHER_PASSWORD: 'x', AUDIT_ACME_PASSWORD: 'p' };
+  expect(ciEnvEntries(secrets, 'AUDIT_ACME_')).toEqual([
+    ['AUDIT_ACME_EMAIL', 'a@acme.test'],
+    ['AUDIT_ACME_PASSWORD', 'p'],
+  ]);
+  expect(ciEnvEntries(secrets)).toEqual([['E2E_USER_EMAIL', 'e2e']]);
+});
+
+test('the prefix must be an upper-case env var prefix', () => {
+  expect(() => ciEnvEntries({}, '')).toThrow(/invalid prefix/);
+  expect(() => ciEnvEntries({}, 'audit_')).toThrow(/invalid prefix/);
+});

@@ -45,10 +45,23 @@ const asStrings = (value: unknown): string[] => (Array.isArray(value) ? value.ma
 const asDate = (value: unknown): string | undefined =>
   value instanceof Date ? value.toISOString().slice(0, 10) : asString(value);
 
-function envName(file: string, field: string, value: unknown): string {
+const AUDIT_ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
+
+/**
+ * The only repository secrets an audit may use: AUDIT_<ID>_EMAIL, _PASSWORD and _TOTP_SECRET.
+ * Exact names, never a prefix: with a prefix, audit "acme" would also load the secrets of "acme-uy".
+ */
+export function auditSecretNames(auditId: string): [email: string, password: string, totpSecret: string] {
+  if (!AUDIT_ID.test(auditId)) throw new Error(`invalid audit id "${auditId}": use lower case letters, digits and -`);
+  const prefix = `AUDIT_${auditId.toUpperCase().replace(/-/g, '_')}_`;
+  return [`${prefix}EMAIL`, `${prefix}PASSWORD`, `${prefix}TOTP_SECRET`];
+}
+
+function envName(file: string, field: string, value: unknown, expected: string): string {
   const name = asString(value);
   // Never echo the value: it could be a password pasted by mistake.
   if (!name || !ENV_NAME.test(name)) fail(file, `${field} must be an env var name like AUDIT_<ID>_EMAIL, not a value`);
+  if (name !== expected) fail(file, `${field} must be ${expected} (each audit only uses its own secrets)`);
   return name as string;
 }
 
@@ -83,10 +96,11 @@ export function loadTarget(file: string): Target {
   if (raw.login !== undefined && raw.login !== null) {
     const l = asRecord(raw.login);
     const labels = asRecord(l.labels);
+    const [emailName, passwordName, totpName] = auditSecretNames(id);
     login = {
       path: asString(l.path) ?? '/login',
-      emailEnv: envName(file, 'login.email_env', l.email_env),
-      passwordEnv: envName(file, 'login.password_env', l.password_env),
+      emailEnv: envName(file, 'login.email_env', l.email_env, emailName),
+      passwordEnv: envName(file, 'login.password_env', l.password_env, passwordName),
       labels: {
         email: asString(labels.email) ?? DEFAULT_LABELS.email,
         password: asString(labels.password) ?? DEFAULT_LABELS.password,
@@ -94,7 +108,7 @@ export function loadTarget(file: string): Target {
         ...(asString(labels.totp) ? { totp: asString(labels.totp) } : {}),
       },
     };
-    if (l.totp_secret_env !== undefined) login.totpSecretEnv = envName(file, 'login.totp_secret_env', l.totp_secret_env);
+    if (l.totp_secret_env !== undefined) login.totpSecretEnv = envName(file, 'login.totp_secret_env', l.totp_secret_env, totpName);
   }
 
   const scope = asRecord(raw.scope);

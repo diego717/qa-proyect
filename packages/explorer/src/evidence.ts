@@ -1,4 +1,5 @@
-import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex');
@@ -46,5 +47,23 @@ export function safeOutputPath(auditDir: string, relativePath: string): string {
     if (stat.isSymbolicLink()) throw new Error(`refusing to write through a symlink: ${path.relative(base, current)}`);
   }
   mkdirSync(path.dirname(target), { recursive: true });
+  return target;
+}
+
+/**
+ * Writes a file inside the audit folder: checked by safeOutputPath, then written to a fresh temporary
+ * file and renamed into place. Renaming replaces the directory entry, so a hardlink or symlink planted at
+ * the destination is replaced, never written through. Returns the absolute path.
+ */
+export function safeWriteFile(auditDir: string, relativePath: string, data: string | Buffer, mode = 0o644): string {
+  const target = safeOutputPath(auditDir, relativePath);
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, data, { flag: 'wx', mode });
+  try {
+    renameSync(temporary, target);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
   return target;
 }

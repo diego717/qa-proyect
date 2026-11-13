@@ -20,7 +20,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Unit tests of every package, the explorer's included.
       - run: npm run test:unit
+
+  # The explorer against the demo app with planted bugs: finds them all, never touches forbidden URLs,
+  # and leaks no credential (packages/explorer/test/*.e2e.ts).
+  explorer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck -w explorer
+      - run: npm run test:e2e -w explorer
 
   demo-e2e:
     runs-on: ubuntu-latest

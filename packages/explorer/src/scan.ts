@@ -1,4 +1,3 @@
-import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { isLoginUrl } from '../../e2e-template/template/e2e/lib/login-form.ts';
@@ -8,7 +7,7 @@ import { measured, watchPage } from './checks/page-events.ts';
 import { checkLinks, type LinkCheckOptions, type LinkToCheck } from './checks/links.ts';
 import { checkA11y } from './checks/a11y.ts';
 import { measureTiming, timingFindings } from './checks/timing.ts';
-import { safeOutputPath } from './evidence.ts';
+import { safeOutputPath, safeWriteFile } from './evidence.ts';
 import { checkFormsInvalid, checkFormsStatic, type SubmitControl } from './checks/forms.ts';
 import type { Finding, PageRecord, ScanResult, SkippedLink } from './finding.ts';
 import type { Target } from './target.ts';
@@ -122,7 +121,7 @@ function isKnownNoise(finding: Finding, target: Target): boolean {
 
 function write(outDir: string, result: ScanResult): ScanResult {
   result.finishedAt = new Date().toISOString();
-  writeFileSync(safeOutputPath(outDir, 'findings/measured.json'), `${JSON.stringify(result, null, 2)}\n`);
+  safeWriteFile(outDir, 'findings/measured.json', `${JSON.stringify(result, null, 2)}\n`);
   return result;
 }
 
@@ -222,7 +221,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
   };
   const saveShot = (findingId: string, png: Buffer) => {
     const file = `evidence/${findingId}.png`;
-    writeFileSync(safeOutputPath(outDir, file), png);
+    safeWriteFile(outDir, file, png);
     return file;
   };
 
@@ -349,7 +348,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
         findingIds.add(finding.id);
         if (shot) {
           finding.evidence.screenshot = `evidence/${finding.id}.png`;
-          writeFileSync(safeOutputPath(outDir, finding.evidence.screenshot), shot);
+          safeWriteFile(outDir, finding.evidence.screenshot, shot);
         }
         result.findings.push(finding);
       }
@@ -376,9 +375,7 @@ export async function saveSession(target: Target, options: { outDir: string; env
   try {
     const context = await authenticate(browser, target, options.env ?? process.env);
     // Session cookies: never written through a link the model could have planted in the audit folder.
-    const file = safeOutputPath(options.outDir, '.auth/session.json');
-    writeFileSync(file, JSON.stringify(await context.storageState(), null, 2), { mode: 0o600 });
-    return file;
+    return safeWriteFile(options.outDir, '.auth/session.json', JSON.stringify(await context.storageState(), null, 2), 0o600);
   } finally {
     await browser.close();
   }

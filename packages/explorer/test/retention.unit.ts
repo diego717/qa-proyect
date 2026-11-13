@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { auditSecretPrefix, expiredAudits } from '../src/retention.ts';
+import { auditSecretNames, expiredAudits } from '../src/retention.ts';
 
 test('an audit expires 30 days after delivery', () => {
   const audits = [
@@ -13,9 +13,9 @@ test('an audit expires 30 days after delivery', () => {
   expect(expiredAudits(audits, '2026-11-13', 10).map((a) => a.id)).toEqual(['old', 'edge']);
 });
 
-test('the secret prefix of an audit is AUDIT_<ID>_ in upper case', () => {
-  expect(auditSecretPrefix('acme-uy')).toBe('AUDIT_ACME_UY_');
-  expect(() => auditSecretPrefix('../x')).toThrow(/invalid audit id/);
+test('the secrets of an audit are exactly AUDIT_<ID>_EMAIL, _PASSWORD and _TOTP_SECRET', () => {
+  expect(auditSecretNames('acme-uy')).toEqual(['AUDIT_ACME_UY_EMAIL', 'AUDIT_ACME_UY_PASSWORD', 'AUDIT_ACME_UY_TOTP_SECRET']);
+  expect(() => auditSecretNames('../x')).toThrow(/invalid audit id/);
 });
 
 test('main only ships audits/example', () => {

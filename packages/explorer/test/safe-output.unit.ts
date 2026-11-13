@@ -36,3 +36,16 @@ test('paths that leave the audit folder are refused', () => {
   expect(() => safeOutputPath(dir, '../x.json')).toThrow(/outside/);
   expect(() => safeOutputPath(dir, path.join(dir, 'abs.json'))).toThrow(/outside|relative/);
 });
+
+test('writing replaces a hardlinked file instead of writing through it', async () => {
+  const { linkSync, readFileSync } = await import('node:fs');
+  const { safeWriteFile } = await import('../src/evidence.ts');
+  const dir = mkdtempSync(path.join(tmpdir(), 'qa-out-'));
+  const outside = path.join(mkdtempSync(path.join(tmpdir(), 'qa-elsewhere-')), 'precious.txt');
+  writeFileSync(outside, 'original');
+  mkdirSync(path.join(dir, 'evidence'));
+  linkSync(outside, path.join(dir, 'evidence', 'shot.png'));
+  safeWriteFile(dir, 'evidence/shot.png', 'new content');
+  expect(readFileSync(outside, 'utf8')).toBe('original');
+  expect(readFileSync(path.join(dir, 'evidence', 'shot.png'), 'utf8')).toBe('new content');
+});

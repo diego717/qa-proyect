@@ -101,3 +101,15 @@ test('the committed example profile is valid', () => {
   expect(target.login?.emailEnv).toBe('AUDIT_EXAMPLE_EMAIL');
   expect(target.scope.start).toEqual(['/items']);
 });
+
+test("a profile can only name its own audit's secrets", () => {
+  const yaml = (email: string) => `name: Acme
+base_url: https://acme.test
+login:
+  path: /login
+  email_env: ${email}
+  password_env: AUDIT_ACME_PASSWORD
+${AUTH}`;
+  expect(loadTarget(profile(yaml('AUDIT_ACME_EMAIL'), 'acme')).login?.emailEnv).toBe('AUDIT_ACME_EMAIL');
+  expect(() => loadTarget(profile(yaml('AUDIT_ACME_UY_EMAIL'), 'acme'))).toThrow(/must be AUDIT_ACME_EMAIL/);
+});

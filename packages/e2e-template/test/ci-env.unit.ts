@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 // @ts-expect-error plain ESM module without type declarations
-import { ciEnvEntries, githubEnvBlock } from '../template/e2e/lib/ci-env.mjs';
+import { ciEnvByName, ciEnvEntries, githubEnvBlock } from '../template/e2e/lib/ci-env.mjs';
 
 test('keeps only E2E_* secrets', () => {
   const entries = ciEnvEntries({ E2E_USER_EMAIL: 'u@x.test', GITHUB_TOKEN: 'gh', QA_INGEST_TOKEN: 'qa' });
@@ -22,16 +22,14 @@ test('refuses a value that contains the delimiter (it could inject other variabl
   );
 });
 
-test('another prefix loads only that prefix (audits load one prospect at a time)', () => {
-  const secrets = { E2E_USER_EMAIL: 'e2e', AUDIT_ACME_EMAIL: 'a@acme.test', AUDIT_OTHER_PASSWORD: 'x', AUDIT_ACME_PASSWORD: 'p' };
-  expect(ciEnvEntries(secrets, 'AUDIT_ACME_')).toEqual([
+test('by name, only those exact secrets are loaded (one audit never sees another one)', () => {
+  const secrets = { AUDIT_ACME_EMAIL: 'a@acme.test', AUDIT_ACME_PASSWORD: 'p', AUDIT_ACME_UY_PASSWORD: 'other prospect', E2E_X: 'e2e' };
+  expect(ciEnvByName(secrets, ['AUDIT_ACME_EMAIL', 'AUDIT_ACME_PASSWORD', 'AUDIT_ACME_TOTP_SECRET'])).toEqual([
     ['AUDIT_ACME_EMAIL', 'a@acme.test'],
     ['AUDIT_ACME_PASSWORD', 'p'],
   ]);
-  expect(ciEnvEntries(secrets)).toEqual([['E2E_USER_EMAIL', 'e2e']]);
 });
 
-test('the prefix must be an upper-case env var prefix', () => {
-  expect(() => ciEnvEntries({}, '')).toThrow(/invalid prefix/);
-  expect(() => ciEnvEntries({}, 'audit_')).toThrow(/invalid prefix/);
+test('names must be upper-case env var names', () => {
+  expect(() => ciEnvByName({}, ['audit_x'])).toThrow(/invalid secret name/);
 });

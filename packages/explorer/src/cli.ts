@@ -4,22 +4,22 @@
 //   login <auditDir>         logs in once → .auth/session.json for the exploration (git-ignored)
 //   validate-observed <auditDir>   checks findings/observed.json written by the exploration
 //   retention <dir>          lists audits in <dir>/<id>/target.yaml delivered more than 30 days ago (exit 1 if any)
-//   secret-prefix <auditId>  prints AUDIT_<ID>_, the prefix of that audit's repository secrets
+//   secret-names <auditId>   prints AUDIT_<ID>_EMAIL,_PASSWORD,_TOTP_SECRET: the only secrets that audit may load
 //   review-file <auditDir>   creates or updates review.yaml from measured.json and observed.json
 //   report <auditDir> [--allow-pending]   review.yaml + summary.md → report/informe.html
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadTarget } from './target.ts';
 import { runScan, saveSession } from './scan.ts';
 import { loadChecklists, validateObserved } from './observed.ts';
-import { auditSecretPrefix, expiredAudits, readAudits } from './retention.ts';
+import { auditSecretNames, expiredAudits, readAudits } from './retention.ts';
 import { applyReview, reportable, writeReviewFile } from './review.ts';
 import { renderReport } from './report/render.ts';
-import { evidenceReader, safeOutputPath } from './evidence.ts';
+import { evidenceReader, safeWriteFile } from './evidence.ts';
 import type { Finding, ScanResult } from './finding.ts';
 
-const USAGE = 'Usage: node src/cli.ts <scan|login|validate-observed|review-file|report|retention> <auditDir> [--allow-pending] | secret-prefix <auditId>';
+const USAGE = 'Usage: node src/cli.ts <scan|login|validate-observed|review-file|report|retention> <auditDir> [--allow-pending] | secret-names <auditId>';
 const CHECKLISTS_DIR = fileURLToPath(new URL('../checklists/', import.meta.url));
 
 /** All findings of an audit: measured.json (required) and observed.json (written by the exploration, optional). */
@@ -60,8 +60,7 @@ function report(auditDir: string, allowPending: boolean): number {
     generatedOn: new Date().toISOString().slice(0, 10),
     readEvidence: evidenceReader(auditDir),
   });
-  const out = safeOutputPath(auditDir, 'report/informe.html');
-  writeFileSync(out, html);
+  const out = safeWriteFile(auditDir, 'report/informe.html', html);
   console.log(`${out} written.`);
   return 0;
 }
@@ -91,14 +90,14 @@ export async function main(argv: string[]): Promise<number> {
       const reviewFile = path.join(auditDir, 'review.yaml');
       const existing = existsSync(reviewFile) ? readFileSync(reviewFile, 'utf8') : undefined;
       const findings = loadFindings(auditDir);
-      writeFileSync(safeOutputPath(auditDir, 'review.yaml'), writeReviewFile(findings, existing));
+      safeWriteFile(auditDir, 'review.yaml', writeReviewFile(findings, existing));
       const toReview = findings.filter((f) => f.source === 'model').length;
       console.log(`${reviewFile} written: ${findings.length} finding(s), ${toReview} from the model to review.`);
       return 0;
     }
     if (command === 'report') return report(auditDir, allowPending);
-    if (command === 'secret-prefix') {
-      console.log(auditSecretPrefix(auditDirArg)); // here the argument is the audit id
+    if (command === 'secret-names') {
+      console.log(auditSecretNames(auditDirArg).join(',')); // here the argument is the audit id
       return 0;
     }
     if (command === 'retention') {

@@ -1,0 +1,77 @@
+# Revisión de hallazgos. Editá solo "status" y "note".
+#
+# Hallazgos del modelo (observados explorando): status inicial pending_review.
+#   confirmed, rejected, needs_info
+#   - confirmed: lo reproduje y es un problema real. Entra en el informe.
+#   - rejected: no es un problema o no se reproduce. "note" es obligatoria (el motivo).
+#   - needs_info: falta información; no entra en el informe hasta resolverlo.
+#
+# Hallazgos medidos (código determinístico): status not_required.
+#   Entran en el informe salvo que los marques rejected, con el motivo en "note".
+#
+# Para revisar: abrí la evidencia (ruta en el comentario de cada hallazgo) y seguí los pasos del hallazgo.
+
+# [observado por el modelo] Un nombre de ítem largo desborda la lista y agrega scroll horizontal a toda la página (moderate)
+# http://localhost:3100/items · evidencia: evidence/items-nombre-largo-desborda.png
+exploration-a3d69d3e0b:
+  status: pending_review
+
+# [observado por el modelo] El campo "New item" es obligatorio pero no se indica hasta después de enviar (minor)
+# http://localhost:3100/items · evidencia: evidence/items-obligatorio-sin-marcar.png
+exploration-09eb98e627:
+  status: pending_review
+
+# [observado por el modelo] Al rechazar un email, el formulario de suscripción lo borra y no dice qué corregir (minor)
+# http://localhost:3100/lab/form-back · evidencia: evidence/form-back-borra-email.png
+exploration-e682844e8d:
+  status: pending_review
+
+# [medido] Link roto (HTTP 404) (moderate)
+# http://localhost:3100/lab/broken-link · evidencia: evidence/broken-link-a012079f3c.png
+broken-link-a012079f3c:
+  status: not_required
+
+# [medido] Imagen rota (moderate)
+# http://localhost:3100/lab/broken-image · evidencia: evidence/broken-image-8d0205a21c.png
+broken-image-8d0205a21c:
+  status: not_required
+
+# [medido] Error del servidor (HTTP 500) (critical)
+# http://localhost:3100/lab/server-error · evidencia: evidence/http-error-3cb5820294.png
+http-error-3cb5820294:
+  status: not_required
+
+# [medido] Error en la consola del navegador (minor)
+# http://localhost:3100/lab/js-error · evidencia: evidence/console-error-5d3fdf9422.png
+console-error-5d3fdf9422:
+  status: not_required
+
+# [medido] Error de JavaScript sin capturar (serious)
+# http://localhost:3100/lab/js-error · evidencia: evidence/js-error-119c6061e8.png
+js-error-119c6061e8:
+  status: not_required
+
+# [medido] Accesibilidad: Los elementos de formulario deben tener etiquetas (critical)
+# http://localhost:3100/lab/unlabeled · evidencia: evidence/a11y-00acdf3bff.png
+a11y-00acdf3bff:
+  status: not_required
+
+# [medido] Campo de email sin type="email" (minor)
+# http://localhost:3100/lab/unlabeled · evidencia: evidence/form-static-84f33894a4.png
+form-static-84f33894a4:
+  status: not_required
+
+# [medido] El formulario acepta datos inválidos (serious)
+# http://localhost:3100/lab/form · evidencia: evidence/form-accepts-invalid-a0c1032b2f.png
+form-accepts-invalid-a0c1032b2f:
+  status: not_required
+
+# [medido] Página lenta (moderate)
+# http://localhost:3100/lab/slow · evidencia: evidence/slow-page-db97c57c0a.png
+slow-page-db97c57c0a:
+  status: not_required
+
+# [medido] Imagen rota (moderate)
+# http://localhost:3100/lab/shared-a · evidencia: evidence/broken-image-3a7961ee49.png
+broken-image-3a7961ee49:
+  status: not_required

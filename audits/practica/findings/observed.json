@@ -1,0 +1,58 @@
+{
+  "findings": [
+    {
+      "id": "exploration-a3d69d3e0b",
+      "source": "model",
+      "check": "exploration",
+      "title": "Un nombre de ítem largo desborda la lista y agrega scroll horizontal a toda la página",
+      "severity": "moderate",
+      "severitySource": "criterio del agente: el ítem se guarda bien, pero desde ese momento toda la página /items queda casi el doble de ancha que la pantalla (2448 px de contenido en una ventana de 1280 px) y en celular sería peor; se puede seguir usando con scroll lateral",
+      "url": "http://localhost:3100/items",
+      "steps": [
+        "Con la sesión iniciada, abrir http://localhost:3100/items",
+        "En el campo \"New item\" escribir \"qa-test-2026-11-14 largo \" seguido de 300 letras x sin espacios",
+        "Tocar \"Add\"",
+        "El ítem aparece en la lista en una sola línea que sale del borde derecho de la ventana; la página entera pasa a tener scroll horizontal (ancho de contenido 2448 px en ventana de 1280 px)"
+      ],
+      "evidence": { "screenshot": "evidence/items-nombre-largo-desborda.png" },
+      "checklistItem": "formularios#6",
+      "review": { "status": "pending_review" }
+    },
+    {
+      "id": "exploration-09eb98e627",
+      "source": "model",
+      "check": "exploration",
+      "title": "El campo \"New item\" es obligatorio pero no se indica hasta después de enviar",
+      "severity": "minor",
+      "severitySource": "criterio del agente: el formulario tiene un solo campo y el error aparece enseguida, así que el costo para el usuario es bajo",
+      "url": "http://localhost:3100/items",
+      "steps": [
+        "Con la sesión iniciada, abrir http://localhost:3100/items",
+        "Observar el campo \"New item\": no tiene asterisco, texto \"obligatorio\" ni atributo required",
+        "Dejar el campo vacío y tocar \"Add\"",
+        "Recién ahí aparece el mensaje \"Name is required\" (respuesta HTTP 400); el mensaje habla de \"Name\" aunque el campo se llama \"New item\" y no queda asociado al campo (sin aria-describedby ni aria-invalid)"
+      ],
+      "evidence": { "screenshot": "evidence/items-obligatorio-sin-marcar.png" },
+      "checklistItem": "formularios#2",
+      "review": { "status": "pending_review" }
+    },
+    {
+      "id": "exploration-e682844e8d",
+      "source": "model",
+      "check": "exploration",
+      "title": "Al rechazar un email, el formulario de suscripción lo borra y no dice qué corregir",
+      "severity": "minor",
+      "severitySource": "criterio del agente: el formulario tiene un solo campo, así que hay que reescribir solo el email, pero sin ver lo que escribió ni una pista el usuario no sabe qué estaba mal",
+      "url": "http://localhost:3100/lab/form-back",
+      "steps": [
+        "Con la sesión iniciada, abrir http://localhost:3100/lab/form-back",
+        "En \"Email\" escribir qa-test@ejemplo (el navegador lo acepta: le falta el dominio de nivel superior) y tocar \"Subscribe\"",
+        "La app redirige a /lab/form-back?error=1 y muestra solo \"Invalid email\"",
+        "El campo \"Email\" aparece vacío: se perdió lo escrito y el mensaje no explica qué parte del email está mal ni cómo corregirlo. /lab/form-ok se comporta igual (responde 400 con el campo vacío)"
+      ],
+      "evidence": { "screenshot": "evidence/form-back-borra-email.png" },
+      "checklistItem": "formularios#3",
+      "review": { "status": "pending_review" }
+    }
+  ]
+}

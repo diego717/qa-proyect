@@ -79,7 +79,9 @@ npm run explorer -w explorer -- scan audits/<id>
    ```
    Queda en `audits/<id>/.auth/session.json`, ignorado por git.
 2. Abrí Claude Code en la rama `audit/<id>` y pedile: *"Usá la skill de `packages/explorer/skills/explorar-auditoria/SKILL.md` para explorar `audits/<id>`"*.
-   - En la nube (claude.ai/code) o en tu máquina, según el resultado de la prueba del Plan B (`docs/superpowers/specs/2026-11-12-agente-explorador-design.md`, §4.3). Si en la nube no se puede abrir el navegador o llegar a la app, hacelo en tu máquina.
+   - **En la nube** (claude.ai/code): ya está probado que ahí se instala Chromium, se llega a internet y se pueden subir commits (§4.3 del diseño). Abrí la sesión sobre la rama `audit/<id>`. Al empezar, pedile que corra `npm ci` y `npx playwright install --with-deps chromium`.
+   - La sesión guardada (`.auth/session.json`) no se sube a git, así que en la nube hay que generarla ahí mismo: cargá las variables `AUDIT_<ID>_EMAIL` y `AUDIT_<ID>_PASSWORD` en la configuración del entorno de claude.ai/code (nunca en el chat) y pedile que corra el `login` del paso 1.
+   - **En tu máquina**, como alternativa: si el prospecto solo deja entrar desde ciertas IPs, o si preferís mirar el navegador mientras explora.
 3. El agente escribe `findings/observed.json` y `summary.md`, y corre `validate-observed` hasta que no haya errores.
 
 Listo cuando: `npm run explorer -w explorer -- validate-observed audits/<id>` dice "valid".

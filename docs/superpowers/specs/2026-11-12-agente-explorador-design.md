@@ -95,7 +95,7 @@ Los perfiles reales tienen datos de prospectos: el repo tiene que ser privado y 
   - **Riesgo:** no sabemos si ese entorno permite instalar Chromium y llegar a la URL del prospecto. La primera tarea del plan lo verifica contra la demo-app.
   - **Plan B si falla:** la sesión corre en la máquina de Diego.
   - En cualquier caso, las skills no dependen de dónde se ejecuten.
-  - **Resultado de la prueba (Plan B, Task 1):** en local, `packages/explorer/scripts/browser-check.mjs` carga la demo-app (`OK 200 Sign in`). En la nube: **pendiente**. Hay que correr, en una sesión de Claude Code en la nube sobre este repo: `npm ci && npx playwright install --with-deps chromium`, levantar la demo (`node packages/demo-app/src/main.mjs &`) y `node packages/explorer/scripts/browser-check.mjs http://localhost:3000/login`, y después lo mismo con `https://example.com`. Anotar acá si instala Chromium, si llega a localhost y si llega a internet.
+  - **Resultado de la prueba (Plan B, Task 1):** en local, `packages/explorer/scripts/browser-check.mjs` carga la demo-app (`OK 200 Sign in`). En la nube (sesión de Claude Code en claude.ai/code, 2026-11-14): **funciona**. `npx playwright install --with-deps chromium` instaló Chrome for Testing 158 sin errores, el check contra la demo levantada en la misma sesión dio `OK 200 Sign in` y contra `https://example.com` dio `OK 200 Example Domain`, así que el entorno tiene salida a internet. Con la app de Claude instalada en el repo, la sesión también puede subir commits a la rama de la auditoría. **Decisión: la exploración corre en la nube**; la máquina de Diego queda como alternativa si un prospecto restringe el acceso por IP.
 
 ### 4.4 Revisión (Diego)
 

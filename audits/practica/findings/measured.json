@@ -1,0 +1,326 @@
+{
+  "target": {
+    "id": "practica",
+    "name": "Demo app (auditoría de práctica)",
+    "baseUrl": "http://localhost:3100",
+    "mode": "staging"
+  },
+  "startedAt": "2026-11-14T19:43:56.212Z",
+  "finishedAt": "2026-11-14T19:44:17.611Z",
+  "status": "completed",
+  "pages": [
+    {
+      "url": "http://localhost:3100/items",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Items"
+    },
+    {
+      "url": "http://localhost:3100/lab",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Lab"
+    },
+    {
+      "url": "http://localhost:3100/lab/clean",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Clean"
+    },
+    {
+      "url": "http://localhost:3100/lab/broken-link",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Broken link"
+    },
+    {
+      "url": "http://localhost:3100/lab/broken-image",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Broken image"
+    },
+    {
+      "url": "http://localhost:3100/lab/server-error",
+      "status": "scanned",
+      "httpStatus": 500,
+      "title": "Error"
+    },
+    {
+      "url": "http://localhost:3100/lab/js-error",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "JavaScript error"
+    },
+    {
+      "url": "http://localhost:3100/lab/unlabeled",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Unlabeled fields"
+    },
+    {
+      "url": "http://localhost:3100/lab/form",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Subscribe"
+    },
+    {
+      "url": "http://localhost:3100/lab/form-ok",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Subscribe"
+    },
+    {
+      "url": "http://localhost:3100/lab/slow",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Slow"
+    },
+    {
+      "url": "http://localhost:3100/lab/redirect",
+      "status": "blocked",
+      "reason": "redirect to a forbidden URL (http://localhost:3100/lab/delete-all)"
+    },
+    {
+      "url": "http://localhost:3100/lab/archive",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Archive"
+    },
+    {
+      "url": "http://localhost:3100/lab/shared-a",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Shared A"
+    },
+    {
+      "url": "http://localhost:3100/lab/shared-b",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Shared B"
+    },
+    {
+      "url": "http://localhost:3100/lab/form-back",
+      "status": "scanned",
+      "httpStatus": 200,
+      "title": "Subscribe"
+    },
+    {
+      "url": "http://localhost:3100/lab/missing",
+      "status": "scanned",
+      "httpStatus": 404,
+      "title": "Not found"
+    }
+  ],
+  "skippedLinks": [
+    {
+      "url": "http://localhost:3100/lab/delete-all",
+      "text": "Delete all",
+      "reason": "never-click"
+    },
+    {
+      "url": "http://localhost:3100/lab/archive-item",
+      "text": "Delete",
+      "reason": "never-click"
+    }
+  ],
+  "findings": [
+    {
+      "id": "broken-link-a012079f3c",
+      "source": "measured",
+      "check": "broken-link",
+      "title": "Link roto (HTTP 404)",
+      "severity": "moderate",
+      "severitySource": "HTTP 404",
+      "url": "http://localhost:3100/lab/broken-link",
+      "steps": [
+        "Abrir http://localhost:3100/lab/broken-link con la sesión del usuario de prueba.",
+        "Hacer click en el link \"Missing page\" (http://localhost:3100/lab/missing).",
+        "La página de destino responde HTTP 404."
+      ],
+      "evidence": {
+        "detail": "http://localhost:3100/lab/missing → HTTP 404",
+        "screenshot": "evidence/broken-link-a012079f3c.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "broken-image-8d0205a21c",
+      "source": "measured",
+      "check": "broken-image",
+      "title": "Imagen rota",
+      "severity": "moderate",
+      "severitySource": "HTTP status",
+      "url": "http://localhost:3100/lab/broken-image",
+      "steps": [
+        "Abrir http://localhost:3100/lab/broken-image con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "GET http://localhost:3100/lab/missing.png → HTTP 404",
+        "screenshot": "evidence/broken-image-8d0205a21c.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "http-error-3cb5820294",
+      "source": "measured",
+      "check": "http-error",
+      "title": "Error del servidor (HTTP 500)",
+      "severity": "critical",
+      "severitySource": "HTTP 5xx",
+      "url": "http://localhost:3100/lab/server-error",
+      "steps": [
+        "Abrir http://localhost:3100/lab/server-error con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "GET http://localhost:3100/lab/server-error → HTTP 500",
+        "screenshot": "evidence/http-error-3cb5820294.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "console-error-5d3fdf9422",
+      "source": "measured",
+      "check": "console-error",
+      "title": "Error en la consola del navegador",
+      "severity": "minor",
+      "severitySource": "console.error",
+      "url": "http://localhost:3100/lab/js-error",
+      "steps": [
+        "Abrir http://localhost:3100/lab/js-error con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "planted console error",
+        "screenshot": "evidence/console-error-5d3fdf9422.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "js-error-119c6061e8",
+      "source": "measured",
+      "check": "js-error",
+      "title": "Error de JavaScript sin capturar",
+      "severity": "serious",
+      "severitySource": "uncaught exception",
+      "url": "http://localhost:3100/lab/js-error",
+      "steps": [
+        "Abrir http://localhost:3100/lab/js-error con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "planted js error (en http://localhost:3100/lab/js-error:1:196)",
+        "screenshot": "evidence/js-error-119c6061e8.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "a11y-00acdf3bff",
+      "source": "measured",
+      "check": "a11y",
+      "title": "Accesibilidad: Los elementos de formulario deben tener etiquetas",
+      "severity": "critical",
+      "severitySource": "axe impact",
+      "url": "http://localhost:3100/lab/unlabeled",
+      "steps": [
+        "Abrir http://localhost:3100/lab/unlabeled con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "label: Los elementos de formulario deben tener etiquetas (https://dequeuniversity.com/rules/axe/4.14/label?application=playwright&lang=es). Elementos: input[name=\"phone\"]",
+        "screenshot": "evidence/a11y-00acdf3bff.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "form-static-84f33894a4",
+      "source": "measured",
+      "check": "form-static",
+      "title": "Campo de email sin type=\"email\"",
+      "severity": "minor",
+      "severitySource": "HTML forms best practice",
+      "url": "http://localhost:3100/lab/unlabeled",
+      "steps": [
+        "Abrir http://localhost:3100/lab/unlabeled con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "Campo \"email\"",
+        "screenshot": "evidence/form-static-84f33894a4.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "form-accepts-invalid-a0c1032b2f",
+      "source": "measured",
+      "check": "form-accepts-invalid",
+      "title": "El formulario acepta datos inválidos",
+      "severity": "serious",
+      "severitySource": "server accepted invalid input",
+      "url": "http://localhost:3100/lab/form",
+      "steps": [
+        "Abrir http://localhost:3100/lab/form con la sesión del usuario de prueba.",
+        "Completar el campo de email con \"not-an-email\".",
+        "Enviar el formulario sin la validación del navegador (como lo haría un script o un navegador viejo).",
+        "El servidor responde HTTP 200 y no muestra ningún mensaje de error."
+      ],
+      "evidence": {
+        "detail": "POST http://localhost:3100/lab/form → HTTP 200",
+        "screenshot": "evidence/form-accepts-invalid-a0c1032b2f.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "slow-page-db97c57c0a",
+      "source": "measured",
+      "check": "slow-page",
+      "title": "Página lenta",
+      "severity": "moderate",
+      "severitySource": "Core Web Vitals \"poor\" threshold (lab data)",
+      "url": "http://localhost:3100/lab/slow",
+      "steps": [
+        "Abrir http://localhost:3100/lab/slow con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "TTFB 2018 ms (umbral 1800 ms). Medido en una sola carga desde el runner de la auditoría.",
+        "screenshot": "evidence/slow-page-db97c57c0a.png"
+      },
+      "review": {
+        "status": "not_required"
+      }
+    },
+    {
+      "id": "broken-image-3a7961ee49",
+      "source": "measured",
+      "check": "broken-image",
+      "title": "Imagen rota",
+      "severity": "moderate",
+      "severitySource": "HTTP status",
+      "url": "http://localhost:3100/lab/shared-a",
+      "steps": [
+        "Abrir http://localhost:3100/lab/shared-a con la sesión del usuario de prueba."
+      ],
+      "evidence": {
+        "detail": "GET http://localhost:3100/lab/missing-logo.png → HTTP 404",
+        "screenshot": "evidence/broken-image-3a7961ee49.png"
+      },
+      "review": {
+        "status": "not_required"
+      },
+      "alsoOn": [
+        "http://localhost:3100/lab/shared-b"
+      ]
+    }
+  ]
+}

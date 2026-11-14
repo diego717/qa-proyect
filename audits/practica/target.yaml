@@ -1,0 +1,54 @@
+# Perfil de ejemplo: la demo-app con los bugs plantados (PLANTED_BUGS=1, PORT=3100).
+# Copialo a audits/<prospecto>/target.yaml en la rama audit/<prospecto>.
+# Nunca pongas contraseñas acá: solo los NOMBRES de las variables de entorno.
+
+# Nombre del prospecto, tal como aparece en el informe.
+name: Demo app (auditoría de práctica)
+
+# Punto de entrada. Sin usuario ni contraseña en la URL.
+base_url: http://localhost:3100
+
+# staging: puede completar formularios con datos de prueba.
+# read-only (por defecto): producción; nunca envía formularios ni confirma acciones.
+mode: staging
+
+# Cómo iniciar sesión. Si la app no tiene login, borrá este bloque.
+login:
+  path: /login
+  email_env: AUDIT_PRACTICA_EMAIL
+  password_env: AUDIT_PRACTICA_PASSWORD
+  # totp_secret_env: AUDIT_PRACTICA_TOTP_SECRET   # solo si el usuario tiene MFA
+  labels: # textos del formulario de login de esta app
+    email: Email
+    password: Password
+    submit: Sign in
+
+# Qué se recorre.
+scope:
+  start: [/items] # páginas por donde empieza el escaneo
+  include: [] # patrones de URL permitidos (vacío = todo el sitio)
+  exclude: [] # patrones de URL que no se visitan
+  max_pages: 50 # tope de páginas del escaneo
+  flows: [] # flujos que el prospecto pidió mirar, por ejemplo "alta de cliente"
+  max_flows: 8 # tope de flujos que explora el modelo
+
+# Patrones extra de links que nunca se visitan (se suman a logout, borrar, pagar, etc.).
+never_click: []
+
+# Errores ya conocidos que no cuentan como hallazgo. Cada uno con su motivo.
+known_noise: []
+#  - pattern: "favicon.ico"
+#    reason: "El prospecto ya lo sabe y no le importa"
+
+# Sin autorización escrita del prospecto no se audita. El escaneo no arranca sin esto.
+authorization:
+  by: Diego (app propia)
+  date: 2026-11-12
+  scope: práctica con la demo-app y sus bugs plantados
+
+# Datos del informe.
+report:
+  brand: QA
+
+# Fecha de entrega del informe (YYYY-MM-DD). A los 30 días se borra la rama audit/<prospecto>.
+# delivered_on: 2026-11-20

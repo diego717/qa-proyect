@@ -156,6 +156,38 @@ test('staging: a form that redirects back with an error is not reported as accep
   expect(accepted).toEqual(['/lab/form']);
 });
 
+test('a session lost midway stops the scan, blocks it and names the page visited just before', async () => {
+  const result = await runScan(demoTarget({}, { start: ['/lab/expiring'], include: ['^/lab/(expiring|session-timeout|clean)$'] }), {
+    outDir: tempOut(),
+    env: DEMO_ENV,
+  });
+  expect(result.status).toBe('blocked');
+  expect(result.blockedReason).toContain('session lost');
+  expect(result.blockedReason).toContain('/lab/session-timeout');
+  expect(result.pages.filter((p) => p.status === 'scanned').length).toBeGreaterThan(0);
+});
+
+test('a login page that redirects within the site still logs in', async () => {
+  const target = demoTarget({ loginPath: '/signin' });
+  const login = { ...(target.login as NonNullable<typeof target.login>), path: '/signin' };
+  const result = await runScan({ ...target, login }, { outDir: tempOut(), env: DEMO_ENV });
+  expect(result.status).toBe('completed');
+});
+
+test('a login page that redirects to another site fails with a clear reason', async () => {
+  const target = demoTarget({ loginPath: '/sso-signin' });
+  const login = { ...(target.login as NonNullable<typeof target.login>), path: '/sso-signin' };
+  const result = await runScan({ ...target, login }, { outDir: tempOut(), env: DEMO_ENV });
+  expect(result.status).toBe('blocked');
+  expect(result.blockedReason).toMatch(/login page redirects out of scope.*sso\.example\.test/);
+});
+
+test('accessibility findings are written in Spanish', async () => {
+  const result = await runScan(demoTarget(), { outDir: tempOut(), env: DEMO_ENV });
+  const label = result.findings.find((f) => f.check === 'a11y' && (f.evidence.detail ?? '').startsWith('label:'));
+  expect(label?.title).toBe('Accesibilidad: Los elementos de formulario deben tener etiquetas');
+});
+
 test('stops at max_pages and says so', async () => {
   const result = await runScan(demoTarget({}, { maxPages: 3 }), { outDir: tempOut(), env: DEMO_ENV });
   expect(result.pages).toHaveLength(3);

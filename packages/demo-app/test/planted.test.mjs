@@ -151,3 +151,26 @@ test('form-back redirects back with an error on invalid input', async () => {
 test('shared-a and shared-b use the same missing logo', async () => {
   for (const page of ['/lab/shared-a', '/lab/shared-b']) assert.ok((await (await get(page)).text()).includes('src="/lab/missing-logo.png"'));
 });
+
+test('signin redirects to login, sso-signin to another site', async () => {
+  const signin = await fetch(`${lab.base}/signin`, { redirect: 'manual' });
+  assert.equal(signin.status, 303);
+  assert.equal(signin.headers.get('location'), '/login');
+  assert.equal((await fetch(`${lab.base}/sso-signin`, { redirect: 'manual' })).headers.get('location'), 'http://sso.example.test/login');
+});
+
+test('session-timeout ends the session; expiring is not linked from the lab', async () => {
+  const own = await start({ plantedBugs: true });
+  try {
+    const ownCookie = await login(own.base);
+    const expiring = await (await fetch(`${own.base}/lab/expiring`, { headers: { cookie: ownCookie } })).text();
+    assert.ok(expiring.includes('href="/lab/session-timeout"'));
+    await fetch(`${own.base}/lab/session-timeout`, { headers: { cookie: ownCookie } });
+    const after = await fetch(`${own.base}/items`, { headers: { cookie: ownCookie }, redirect: 'manual' });
+    assert.equal(after.headers.get('location'), '/login');
+    const index = await (await fetch(`${own.base}/lab`, { headers: { cookie: await login(own.base) } })).text();
+    assert.ok(!index.includes('/lab/expiring'));
+  } finally {
+    own.server.close();
+  }
+});

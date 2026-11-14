@@ -38,6 +38,15 @@ export function loadChecklists(dir: string): ChecklistItem[] {
 const SEVERITIES = new Set<Severity>(['critical', 'serious', 'moderate', 'minor']);
 
 /**
+ * Id of an observed finding: derived from its whole content (url, checklist item, title, severity, steps,
+ * screenshot), so a finding that changes in a new exploration gets a new id and is reviewed again
+ * instead of inheriting an old "confirmed".
+ */
+export function observedId(f: { url: string; checklistItem: string; title: string; severity: string; steps: string[]; screenshot: string }): string {
+  return findingId('exploration', f.url, JSON.stringify([f.checklistItem, f.title, f.severity, f.steps, f.screenshot]));
+}
+
+/**
  * Validates observed.json, written by the exploring model. It is untrusted input: a finding is accepted only
  * if it is an exploration finding pending review, cites an existing checklist item, has at least 2 steps,
  * evidence inside the audit's evidence folder, and the id the content implies.
@@ -75,8 +84,15 @@ export function validateObserved(json: unknown, context: { auditDir: string; che
       problems.push('evidence.screenshot must be a PNG inside the evidence/ folder of the audit');
     }
     if ((f.review as Finding['review'] | undefined)?.status !== 'pending_review') problems.push('review.status must be "pending_review"');
-    if (urlOk && typeof f.checklistItem === 'string' && typeof f.title === 'string') {
-      const expected = findingId('exploration', f.url as string, f.checklistItem + f.title);
+    if (urlOk && typeof f.checklistItem === 'string' && typeof f.title === 'string' && Array.isArray(f.steps) && typeof screenshot === 'string') {
+      const expected = observedId({
+        url: f.url as string,
+        checklistItem: f.checklistItem,
+        title: f.title,
+        severity: String(f.severity),
+        steps: f.steps as string[],
+        screenshot,
+      });
       if (f.id !== expected) problems.push(`id must be ${expected}`);
     }
     if (problems.length) errors.push(...problems.map((p) => `${where}: ${p}`));

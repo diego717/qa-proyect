@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { chromium, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, type BrowserContext, type Page, type Response } from '@playwright/test';
 import { isLoginUrl } from '../../e2e-template/template/e2e/lib/login-form.ts';
 import { authenticate } from './login.ts';
 import { classifyLink, isForbiddenUrl, normalizeUrl } from './frontier.ts';
@@ -168,6 +168,14 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
         // Registered before the test hooks: later routes run first, so tests can still fake responses.
         await installNavigationGuard(ctx, guard);
         await options.prepareContext?.(ctx);
+      }, async (loginPage, url) => {
+        // The login page may redirect (/login → /login/, or to an SSO): follow it through the guard.
+        const { response, blocked } = await gotoGuarded(loginPage, guard, url);
+        if (!response) {
+          throw new Error(blocked ? `login page redirects out of scope (${blocked.url})` : `login page did not load (${url})`);
+        }
+        guard.loginUrl = loginPage.url(); // where the app really logs in: also how a lost session is recognized
+        return loginPage.url();
       });
     } catch (error) {
       guard.loggingIn = false;
@@ -179,13 +187,21 @@ export async function runScan(target: Target, options: ScanOptions): Promise<Sca
 
     guard.loggingIn = false;
     const page = await context.newPage();
-    await crawl(page, guard, result, outDir, {
+    const crawled = await crawl(page, guard, result, outDir, {
       sessionRequest: context.request,
       origin: new URL(target.baseUrl).origin,
       allowSameOrigin: (url) => navigationVerdict(guard, url, 'GET') === 'allow',
       neverClick: target.neverClick,
       onRequest: options.onRequest,
     });
+    if (crawled.sessionLostAfter) {
+      result.status = 'blocked';
+      result.blockedReason =
+        `session lost mid-scan: the last page scanned was ${crawled.sessionLostAfter} (its links were checked too) ` +
+        `and the first one sent back to the login was ${crawled.firstBounced}. If one of them ends the session, add it to never_click; ` +
+        'otherwise the session expires too soon.';
+      return write(outDir, result);
+    }
 
     if (!result.pages.some((p) => p.status === 'scanned')) {
       result.status = 'blocked';
@@ -204,7 +220,38 @@ function seenAgain(finding: Finding, pageUrl: string): void {
   finding.alsoOn = [...(finding.alsoOn ?? []), pageUrl];
 }
 
-async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: string, linkOptions: LinkCheckOptions): Promise<void> {
+/**
+ * Navigates through the guard, following each allowed redirect hop itself (the guard never hands a redirect
+ * to the browser). Returns the final response, or why it was blocked.
+ */
+async function gotoGuarded(page: Page, guard: Guard, url: string): Promise<{ response: Response | null; blocked: Guard['lastBlocked'] }> {
+  let response: Response | null = null;
+  let blocked: Guard['lastBlocked'] = null;
+  let next: string | null = url;
+  for (let hop = 0; next && hop <= MAX_REDIRECTS; hop++) {
+    guard.lastBlocked = null;
+    guard.lastRedirect = null;
+    const current: string = next;
+    next = null;
+    response = await page.goto(current, { waitUntil: 'load', timeout: NAV_TIMEOUT }).catch(() => null);
+    if (response) break;
+    // An aborted navigation loads Chrome's error page; let it finish or it interrupts the next hop.
+    await page.waitForURL(/^chrome-error:/, { timeout: 2_000 }).catch(() => {});
+    const redirect = guard.lastRedirect as Guard['lastRedirect'];
+    if (redirect && redirect.verdict === 'allow') next = redirect.to;
+    else if (redirect) blocked = { url: redirect.to, reason: redirect.verdict === 'never-click' ? 'never-click' : 'out-of-scope' };
+    else blocked = guard.lastBlocked as Guard['lastBlocked'];
+  }
+  return { response, blocked };
+}
+
+async function crawl(
+  page: Page,
+  guard: Guard,
+  result: ScanResult,
+  outDir: string,
+  linkOptions: LinkCheckOptions,
+): Promise<{ sessionLostAfter?: string; firstBounced?: string }> {
   const { target, loginUrl } = guard;
   const origin = new URL(target.baseUrl).origin;
   const checkedLinks = new Set<string>();
@@ -255,23 +302,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
     }
 
     const watcher = watchPage(page, target);
-    let response = null;
-    let blocked: Guard['lastBlocked'] = null;
-    let next: string | null = url;
-    for (let hop = 0; next && hop <= MAX_REDIRECTS; hop++) {
-      guard.lastBlocked = null;
-      guard.lastRedirect = null;
-      const current: string = next;
-      next = null;
-      response = await page.goto(current, { waitUntil: 'load', timeout: NAV_TIMEOUT }).catch(() => null);
-      if (response) break;
-      // An aborted navigation loads Chrome's error page; let it finish or it interrupts the next hop.
-      await page.waitForURL(/^chrome-error:/, { timeout: 2_000 }).catch(() => {});
-      const redirect = guard.lastRedirect as Guard['lastRedirect'];
-      if (redirect && redirect.verdict === 'allow') next = redirect.to;
-      else if (redirect) blocked = { url: redirect.to, reason: redirect.verdict === 'never-click' ? 'never-click' : 'out-of-scope' };
-      else blocked = guard.lastBlocked as Guard['lastBlocked'];
-    }
+    const { response, blocked } = await gotoGuarded(page, guard, url);
     await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
     const pageFindings = watcher.stop();
 
@@ -286,8 +317,12 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
       continue;
     }
     const finalUrl = page.url();
-    if (loginUrl && isLoginUrl(finalUrl, loginUrl) && !isLoginUrl(url, loginUrl)) {
+    const currentLogin = guard.loginUrl ?? loginUrl;
+    if (currentLogin && isLoginUrl(finalUrl, currentLogin) && !isLoginUrl(url, currentLogin)) {
       result.pages.push({ url, status: 'blocked', reason: 'session lost' });
+      const lastScanned = [...result.pages].reverse().find((p) => p.status === 'scanned');
+      // Lost after some pages were scanned: every later page would bounce too, so stop and say where it happened.
+      if (lastScanned) return { sessionLostAfter: lastScanned.url, firstBounced: url };
       continue;
     }
 
@@ -374,7 +409,7 @@ async function crawl(page: Page, guard: Guard, result: ScanResult, outDir: strin
         result.findings.push(finding);
       }
     }
-  }
+  }  return {};
 }
 
 /**

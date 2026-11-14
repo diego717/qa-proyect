@@ -22,3 +22,20 @@ test('main only ships audits/example', () => {
   const audits = readdirSync(fileURLToPath(new URL('../../../audits/', import.meta.url)));
   expect(audits).toEqual(['example']);
 });
+
+test('one invalid profile does not hide the other audits', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const { readAudits } = await import('../src/retention.ts');
+  const dir = mkdtempSync(path.join(tmpdir(), 'qa-ret-'));
+  const example = readFileSync(fileURLToPath(new URL('../../../audits/example/target.yaml', import.meta.url)), 'utf8');
+  mkdirSync(path.join(dir, 'example'));
+  writeFileSync(path.join(dir, 'example', 'target.yaml'), example.replace('# delivered_on: 2026-11-20', 'delivered_on: 2026-09-01'));
+  mkdirSync(path.join(dir, 'broken'));
+  writeFileSync(path.join(dir, 'broken', 'target.yaml'), 'name: Broken\n');
+  const { audits, errors } = readAudits(dir);
+  expect(audits.map((a) => a.id)).toEqual(['example']);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toMatch(/broken/);
+});

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validateObserved } from '../src/observed.ts';
+import { observedId, validateObserved } from '../src/observed.ts';
 import { findingId } from '../src/finding.ts';
 
 const PNG = Buffer.from('89504e470d0a1a0a00', 'hex');
@@ -16,7 +16,7 @@ function context() {
 
 const url = 'http://localhost:3100/lab/form';
 const good = () => ({
-  id: findingId('exploration', url, 'formularios#4' + 'El botón no da feedback'),
+  id: observedId({ url, checklistItem: 'formularios#4', title: 'El botón no da feedback', severity: 'moderate', steps: ['Abrir el formulario.', 'Tocar Subscribe dos veces.'], screenshot: 'evidence/shot.png' }),
   source: 'model',
   check: 'exploration',
   title: 'El botón no da feedback',
@@ -42,7 +42,7 @@ test('rejects a finding that claims to be measured', () => {
 
 test('rejects an unknown checklist item', () => {
   const finding = { ...good(), checklistItem: 'inventado#9' };
-  const { errors } = validateObserved({ findings: [{ ...finding, id: findingId('exploration', url, 'inventado#9' + finding.title) }] }, context());
+  const { errors } = validateObserved({ findings: [finding] }, context());
   expect(errors.join('\n')).toMatch(/unknown checklist item "inventado#9"/);
 });
 
@@ -74,4 +74,12 @@ test('rejects an invalid severity, check or url, and a file that is not { findin
   expect(validateObserved({ findings: [{ ...good(), check: 'http-error' }] }, context()).errors.join('\n')).toMatch(/check must be "exploration"/);
   expect(validateObserved({ findings: [{ ...good(), url: 'javascript:alert(1)' }] }, context()).errors.join('\n')).toMatch(/url/);
   expect(validateObserved([], context()).errors.join('\n')).toMatch(/\{ "findings": \[\.\.\.\] \}/);
+});
+
+test('the id depends on the content, so a changed finding is reviewed again', () => {
+  const steps2 = ['Abrir el formulario.', 'Tocar Subscribe tres veces.'];
+  const first = validateObserved({ findings: [good()] }, context()).errors;
+  expect(first).toEqual([]);
+  const changed = validateObserved({ findings: [{ ...good(), steps: steps2 }] }, context()).errors.join('\n');
+  expect(changed).toMatch(/id must be exploration-/); // same id with different steps is refused
 });

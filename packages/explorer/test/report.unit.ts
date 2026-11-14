@@ -177,3 +177,30 @@ test('a finding seen on several pages lists them', () => {
   expect(html).toContain('También aparece en 2 páginas más');
   expect(html).toContain('http://localhost:3100/c');
 });
+
+test('the report counts pages reviewed, pages with problems and blocked pages', () => {
+  const html = renderReport(
+    input({
+      scan: scan({
+        pages: [
+          { url: 'http://localhost:3100/a', status: 'scanned', httpStatus: 200 },
+          { url: 'http://localhost:3100/b', status: 'scanned', httpStatus: 200 },
+          { url: 'http://localhost:3100/c', status: 'blocked', reason: 'session lost' },
+        ],
+      }),
+      findings: [finding('m1', { url: 'http://localhost:3100/b' })],
+    }),
+  );
+  expect(html).toMatch(/Páginas revisadas:\s*<strong>2<\/strong>/);
+  expect(html).toMatch(/Con problemas:\s*<strong>1<\/strong>/);
+  expect(html).toMatch(/No se pudieron revisar:\s*<strong>1<\/strong>/);
+});
+
+test('what was not reviewed always mentions screens reached without links', () => {
+  expect(renderReport(input())).toContain('pantallas a las que se llega sin un link');
+});
+
+test('a finding without a screenshot says so', () => {
+  const html = renderReport(input({ findings: [finding('m1')], readEvidence: () => null }));
+  expect(html).toContain('Sin captura de pantalla');
+});

@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext } from '@playwright/test';
+import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { submitLoginForm } from '../../e2e-template/template/e2e/lib/login-form.ts';
 import { totp } from '../../e2e-template/template/e2e/lib/totp.ts';
 import { TOTP_LABEL } from '../../e2e-template/template/e2e/pages/login-labels.ts';
@@ -14,6 +14,8 @@ export async function authenticate(
   target: Target,
   env: NodeJS.ProcessEnv = process.env,
   prepare?: (context: BrowserContext) => Promise<void>,
+  /** Opens the login page and returns where it ended up (after redirects). Default: a plain page.goto. */
+  navigate?: (page: Page, url: string) => Promise<string>,
 ): Promise<BrowserContext> {
   const context = await browser.newContext({ baseURL: target.baseUrl });
   await prepare?.(context);
@@ -29,8 +31,11 @@ export async function authenticate(
 
   const page = await context.newPage();
   try {
+    const requested = new URL(login.path, target.baseUrl).href;
+    const loginUrl = navigate ? await navigate(page, requested) : requested;
     await submitLoginForm(page, {
-      loginUrl: new URL(login.path, target.baseUrl).href,
+      loginUrl,
+      alreadyOnPage: !!navigate,
       email: env[login.emailEnv] as string,
       password: env[login.passwordEnv] as string,
       totpCode: login.totpSecretEnv ? totp(env[login.totpSecretEnv] as string) : undefined,

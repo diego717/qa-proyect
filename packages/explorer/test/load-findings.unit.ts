@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadFindings } from '../src/cli.ts';
-import { findingId } from '../src/finding.ts';
+import { observedId } from '../src/observed.ts';
 
 function audit(measured: object[], observed: object[]): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'qa-load-'));
@@ -28,7 +28,7 @@ test('a valid observed finding loads as model, pending, and never as third party
   const finding = {
     ...base,
     title,
-    id: findingId('exploration', base.url, 'formularios#4' + title),
+    id: observedId({ url: base.url, checklistItem: 'formularios#4', title, severity: base.severity, steps: base.steps, screenshot: 'evidence/x.png' }),
     source: 'model',
     checklistItem: 'formularios#4',
     evidence: { screenshot: 'evidence/x.png' },

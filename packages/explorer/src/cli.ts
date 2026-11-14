@@ -112,7 +112,10 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === 'retention') {
       const today = new Date().toISOString().slice(0, 10);
-      const expired = expiredAudits(readAudits(auditDir), today);
+      const { audits, errors } = readAudits(auditDir);
+      for (const problem of errors) console.log(`> ⚠️ Perfil inválido, revisalo a mano: ${problem}\n`);
+      const expired = expiredAudits(audits, today);
+      if (!expired.length && errors.length) return 1;
       if (!expired.length) {
         console.log(`No audit data past the 30-day retention (checked ${today}).`);
         return 0;

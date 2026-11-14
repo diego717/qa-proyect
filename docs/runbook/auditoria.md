@@ -136,6 +136,8 @@ El motivo está en `audits/<id>/findings/measured.json`, en `blockedReason`:
 |---|---|
 | `Missing audit credentials: set AUDIT_...` | Falta un secret del paso 3, o el nombre no coincide. |
 | `Login failed for audit target "<id>"` | Probá entrar a mano con ese usuario. Si funciona, el formulario usa otros textos: ajustá `login.labels` en el perfil. Si no, pedile al prospecto que revise el usuario. |
+| `session lost mid-scan: ...` | La sesión se cortó a mitad del recorrido. El mensaje nombra la última página revisada y la primera que volvió al login: si una de ellas cierra la sesión, agregala a `never_click`. Si no, la sesión del prospecto dura muy poco: pedile que la extienda para el usuario de prueba. |
+| `login page redirects out of scope (...)` | La página de login redirige a otro sitio, por ejemplo un SSO. El escáner no inicia sesión fuera del sitio del prospecto: pedile un usuario con login directo, o una URL de login que no redirija. |
 | `No page could be scanned: session lost` | La app cerró la sesión enseguida. Revisá `scope.start`: tiene que ser una página a la que el usuario tenga acceso. |
 | `No page could be scanned: redirect ...` | La página de inicio redirige a algo prohibido o fuera de alcance. Revisá `scope.start` e `include`. |
 | `did not load` | La app no responde desde GitHub. Puede tener una allowlist de IPs: corré el escaneo en tu máquina o pedí acceso. |

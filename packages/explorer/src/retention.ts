@@ -21,11 +21,18 @@ export function expiredAudits(
 }
 
 /** Reads <dir>/<id>/target.yaml for every audit folder (the retention workflow extracts them from the audit/* branches). */
-export function readAudits(dir: string): { id: string; deliveredOn?: string }[] {
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(path.join(dir, entry.name, 'target.yaml')))
-    .map((entry) => {
+export function readAudits(dir: string): { audits: { id: string; deliveredOn?: string }[]; errors: string[] } {
+  const audits: { id: string; deliveredOn?: string }[] = [];
+  const errors: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !existsSync(path.join(dir, entry.name, 'target.yaml'))) continue;
+    try {
       const target = loadTarget(path.join(dir, entry.name, 'target.yaml'));
-      return { id: target.id, ...(target.deliveredOn ? { deliveredOn: target.deliveredOn } : {}) };
-    });
+      audits.push({ id: target.id, ...(target.deliveredOn ? { deliveredOn: target.deliveredOn } : {}) });
+    } catch (error) {
+      // One broken profile must not hide the others: report it and keep going.
+      errors.push(`${entry.name}: ${(error as Error).message}`);
+    }
+  }
+  return { audits, errors };
 }

@@ -160,6 +160,10 @@ export function createServer({ resetToken, users = DEFAULT_USERS, plantedBugs = 
 
       if (route === 'GET /login') return send(res, 200, loginPage());
 
+      // Login pages that redirect (planted): to another path of the same site, and to another site (like an SSO).
+      if (plantedBugs && route === 'GET /signin') return redirect(res, '/login');
+      if (plantedBugs && route === 'GET /sso-signin') return redirect(res, 'http://sso.example.test/login');
+
       if (route === 'POST /login') {
         const body = await readBody(req);
         const match = users.find((u) => u.email === body.get('email') && u.password === body.get('password'));
@@ -195,6 +199,18 @@ export function createServer({ resetToken, users = DEFAULT_USERS, plantedBugs = 
       if (plantedBugs && url.pathname.startsWith('/lab')) {
         if (route === 'GET /lab') return send(res, 200, labIndex());
         if (route === 'GET /lab/server-error') return send(res, 500, layout('Error', '<h1>Internal error</h1>'));
+        // Not linked from /lab: a page whose link silently ends the session, so the crawl loses it midway.
+        if (route === 'GET /lab/expiring') {
+          return send(
+            res,
+            200,
+            layout('Expiring', '<main><h1>Expiring</h1><ul><li><a href="/lab/session-timeout">Details</a></li><li><a href="/lab/clean">Clean page</a></li></ul></main>'),
+          );
+        }
+        if (route === 'GET /lab/session-timeout') {
+          sessions.delete(parseCookies(req.headers.cookie).session);
+          return send(res, 200, layout('Details', '<main><h1>Details</h1></main>'));
+        }
         if (route === 'GET /lab/slow') {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           return send(res, 200, layout('Slow', '<main><h1>Slow page</h1></main>'));

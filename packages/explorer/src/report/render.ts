@@ -91,6 +91,11 @@ function renderFinding(finding: Finding, readEvidence?: ReportInput['readEvidenc
       : ''
   }
   ${
+    !image
+      ? '<p class="meta">Sin captura de pantalla: no se pudo tomar durante la revisión. Los pasos alcanzan para reproducirlo.</p>'
+      : ''
+  }
+  ${
     image
       ? `<details class="shot" open><summary>Evidencia (captura de la página; tocá para ocultarla)</summary><img class="evidence" alt="Evidencia de ${escapeHtml(finding.id)}" src="data:image/png;base64,${image.toString('base64')}"></details>`
       : ''
@@ -109,6 +114,9 @@ function renderNotReviewed(scan: ScanResult, readOnly: boolean): string {
   for (const link of scan.skippedLinks) byReason.set(link.reason, [...(byReason.get(link.reason) ?? []), link]);
   const items: string[] = [];
   if (readOnly) items.push('<li>No se enviaron formularios ni se confirmaron acciones (modo solo lectura: la app es de producción).</li>');
+  items.push(
+    '<li>El escáner automático solo sigue links: las pantallas a las que se llega sin un link (por ejemplo, en aplicaciones que cambian de pantalla con botones) solo se revisaron si las recorrió la exploración del agente.</li>',
+  );
   if (blocked.length) {
     items.push(
       `<li>Páginas que no se pudieron revisar:<ul>${blocked
@@ -168,6 +176,8 @@ export function renderReport(input: ReportInput): string {
   const own = sortBySeverity(included.filter((f) => !f.thirdParty));
   const thirdParty = sortBySeverity(included.filter((f) => f.thirdParty));
   const scanned = scan.pages.filter((p) => p.status === 'scanned');
+  const scannedUrls = new Set(scanned.map((p) => p.url));
+  const pagesWithProblems = new Set(own.flatMap((f) => [f.url, ...(f.alsoOn ?? [])]).filter((u) => scannedUrls.has(u))).size;
   const counts = SEVERITY_ORDER.map((s) => `${SEVERITY_LABEL[s]}: ${own.filter((f) => f.severity === s).length}`).join(' · ');
 
   return `<!doctype html>
@@ -200,6 +210,11 @@ ${blockedBanner}
 <section>
   <h2>Qué se revisó</h2>
   <p>Se escanearon <strong>${scanned.length}</strong> páginas con chequeos automáticos (errores HTTP, imágenes y links rotos, errores de JavaScript, accesibilidad WCAG 2.1 AA, tiempos de carga y formularios). Los flujos explorados a mano por el agente se detallan en el resumen.</p>
+  <div class="counters">
+    <p>Páginas revisadas: <strong>${scanned.length}</strong></p>
+    <p>Con problemas: <strong>${pagesWithProblems}</strong></p>
+    <p>No se pudieron revisar: <strong>${scan.pages.length - scanned.length}</strong></p>
+  </div>
   <details><summary>Páginas escaneadas</summary><ul>${scanned.map((p) => `<li>${escapeHtml(p.url)}</li>`).join('')}</ul></details>
 </section>
 

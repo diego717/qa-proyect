@@ -14,6 +14,8 @@ export type LoginFormOptions = {
   /** Who is logging in, for the error message: a role or an audit target. Never a credential. */
   who: string;
   timeoutMs?: number;
+  /** The page is already on the login form (the caller navigated, e.g. following redirects): skip page.goto. */
+  alreadyOnPage?: boolean;
 };
 
 const trimSlash = (pathname: string) => pathname.replace(/\/+$/, '') || '/';
@@ -42,7 +44,7 @@ export async function fillSecret(locator: Locator, value: string): Promise<void>
 /** Fills and submits the login form, then waits to leave the login page. Throws `Login failed for <who>`. */
 export async function submitLoginForm(page: Page, options: LoginFormOptions): Promise<void> {
   const { labels } = options;
-  await page.goto(options.loginUrl);
+  if (!options.alreadyOnPage) await page.goto(options.loginUrl);
   await page.getByLabel(labels.email).fill(options.email);
   await fillSecret(page.getByLabel(labels.password), options.password);
   if (options.totpCode && labels.totp) await fillSecret(page.getByLabel(labels.totp), options.totpCode);
